@@ -1,0 +1,17 @@
+{
+  "name": "pixel-agents-monitor",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "bun run --filter '*' dev",
+    "dev:server": "cd server && bun run dev",
+    "dev:client": "cd client && bun run dev",
+    "build": "cd client && bun run build",
+    "start": "cd server && bun run start"
+  },
+  "workspaces": [
+    "server",
+    "client"
+  ]
+}
