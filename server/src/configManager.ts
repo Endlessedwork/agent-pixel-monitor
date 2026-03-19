@@ -13,7 +13,7 @@ import {
   LAYOUT_FILE_POLL_INTERVAL_MS,
   LAYOUT_REVISION_KEY,
 } from './constants.js';
-import type { AppConfig, MonitoredProject } from './types.js';
+import type { AgentAppearance, AppConfig, MonitoredProject } from './types.js';
 
 // ── Config File Operations ───────────────────────────────────
 
@@ -37,6 +37,7 @@ export function loadConfig(): AppConfig {
     projects: [],
     layoutFile: path.join(LAYOUT_FILE_DIR, LAYOUT_FILE_NAME),
     soundEnabled: true,
+    agentAppearances: {},
   };
 }
 
@@ -79,6 +80,18 @@ export function updateSoundEnabled(config: AppConfig, enabled: boolean): AppConf
   };
   saveConfig(updatedConfig);
   return updatedConfig;
+}
+
+export function updateAgentAppearance(
+  config: AppConfig,
+  agentKey: string,
+  appearance: AgentAppearance,
+): AppConfig {
+  const current = config.agentAppearances ?? {};
+  const updated = { ...current, [agentKey]: appearance };
+  const newConfig = { ...config, agentAppearances: updated };
+  saveConfig(newConfig);
+  return newConfig;
 }
 
 // ── Layout File Operations ───────────────────────────────────

@@ -31,6 +31,7 @@ import {
   readLayoutFromFile,
   removeProject,
   saveConfig,
+  updateAgentAppearance,
   updateSoundEnabled,
   watchLayoutFile,
   writeLayoutToFile,
@@ -214,11 +215,65 @@ app.post('/api/config/sound', async (c) => {
   }
 });
 
+// ── REST API: Agent Appearances ──────────────────────────────
+
+app.get('/api/config/appearances', (c) => {
+  const config = loadConfig();
+  return c.json(config.agentAppearances ?? {});
+});
+
+app.put('/api/config/appearances/:agentKey', async (c) => {
+  const agentKey = c.req.param('agentKey');
+  const body = await c.req.json();
+  config = updateAgentAppearance(config, agentKey, body);
+  return c.json({ success: true });
+});
+
+// ── REST API: OpenClaw Agents ────────────────────────────────
+
+app.get('/api/openclaw/agents', (c) => {
+  const openclawDir = path.join(os.homedir(), '.openclaw');
+  const agentsDir = path.join(openclawDir, 'agents');
+  if (!fs.existsSync(agentsDir)) return c.json({ agents: [] });
+
+  // Read agent names from config
+  let agentNames: Record<string, string> = {};
+  try {
+    const configPath = path.join(openclawDir, 'openclaw.json');
+    if (fs.existsSync(configPath)) {
+      const ocConfig = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+      const list = ocConfig?.agents?.list;
+      if (Array.isArray(list)) {
+        for (const a of list) {
+          if (a.id) agentNames[a.id] = a.name || a.id;
+        }
+      }
+    }
+  } catch { /* ignore */ }
+
+  // Scan directories
+  const agents: Array<{ id: string; name: string }> = [];
+  try {
+    for (const dir of fs.readdirSync(agentsDir)) {
+      const sessDir = path.join(agentsDir, dir, 'sessions');
+      if (fs.existsSync(sessDir)) {
+        agents.push({ id: dir, name: agentNames[dir] || dir });
+      }
+    }
+  } catch { /* ignore */ }
+
+  return c.json({ agents });
+});
+
 // ── Static Files (production) ────────────────────────────────
 
 const clientDistPath = path.join(path.dirname(path.dirname(__dirname)), 'client', 'dist');
 if (fs.existsSync(clientDistPath)) {
-  app.use('/*', serveStatic({ root: clientDistPath }));
+  // Serve static files with absolute path using rewriteRequestPath
+  app.use('/*', serveStatic({
+    root: '/',
+    rewriteRequestPath: (reqPath) => path.join(clientDistPath, reqPath),
+  }));
   // SPA fallback - serve index.html for non-API, non-asset routes
   app.get('*', (c) => {
     const indexPath = path.join(clientDistPath, 'index.html');
