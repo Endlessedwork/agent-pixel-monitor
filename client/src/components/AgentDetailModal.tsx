@@ -225,6 +225,7 @@ function MiniCharacterPreview({ palette, hueShift }: { readonly palette: number;
   );
 
   useEffect(() => {
+    frameRef.current = 0;
     drawFrame(0);
     const interval = setInterval(() => {
       frameRef.current = (frameRef.current + 1) % 4;
