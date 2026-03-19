@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ACTIVITY_TIMESTAMP_REFRESH_MS } from '../constants.js';
 import { formatActivity } from '../office/formatActivity.js';
 import type { OfficeState } from '../office/engine/officeState.js';
+import { MALE_PALETTES, FEMALE_PALETTES } from '../office/engine/officeState.js';
 import { getCharacterSprites } from '../office/sprites/spriteData.js';
 import { Direction, type ActivityEntry, type Character, type SpriteData, type ToolActivity } from '../office/types.js';
 import type { MonitoredProjectInfo } from '../hooks/useExtensionMessages.js';
@@ -123,6 +124,7 @@ const closeBtnStyle: React.CSSProperties = {
 
 const PREVIEW_SCALE = 4;
 const PREVIEW_FRAME_MS = 400;
+const MINI_PREVIEW_SCALE = 3;
 
 /** Renders a pixel-art character sprite on a small canvas, animated like an RPG character select screen */
 function CharacterPreview({ character }: { readonly character: Character }) {
@@ -186,6 +188,59 @@ function CharacterPreview({ character }: { readonly character: Character }) {
   );
 }
 
+function MiniCharacterPreview({ palette, hueShift }: { readonly palette: number; readonly hueShift: number }) {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const frameRef = useRef(0);
+
+  const sprites = useMemo(
+    () => getCharacterSprites(palette, hueShift),
+    [palette, hueShift],
+  );
+
+  const drawFrame = useCallback(
+    (frame: number) => {
+      const canvas = canvasRef.current;
+      if (!canvas) return;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return;
+      const walkCycle = [0, 1, 2, 1];
+      const spriteData: SpriteData = sprites.walk[Direction.DOWN][walkCycle[frame % 4]];
+      if (!spriteData || spriteData.length === 0) return;
+      const rows = spriteData.length;
+      const cols = spriteData[0].length;
+      canvas.width = cols * MINI_PREVIEW_SCALE;
+      canvas.height = rows * MINI_PREVIEW_SCALE;
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.imageSmoothingEnabled = false;
+      for (let r = 0; r < rows; r++) {
+        for (let c = 0; c < cols; c++) {
+          const color = spriteData[r][c];
+          if (color === '') continue;
+          ctx.fillStyle = color;
+          ctx.fillRect(c * MINI_PREVIEW_SCALE, r * MINI_PREVIEW_SCALE, MINI_PREVIEW_SCALE, MINI_PREVIEW_SCALE);
+        }
+      }
+    },
+    [sprites],
+  );
+
+  useEffect(() => {
+    drawFrame(0);
+    const interval = setInterval(() => {
+      frameRef.current = (frameRef.current + 1) % 4;
+      drawFrame(frameRef.current);
+    }, PREVIEW_FRAME_MS);
+    return () => clearInterval(interval);
+  }, [drawFrame]);
+
+  return (
+    <canvas
+      ref={canvasRef}
+      style={{ imageRendering: 'pixelated', flexShrink: 0 }}
+    />
+  );
+}
+
 function StatusDot({ color, pulse }: { color: string; pulse?: boolean }) {
   return (
     <span
@@ -239,6 +294,15 @@ export function AgentDetailModal({
   }, [onClose]);
 
   const character = officeState.characters.get(agentId);
+
+  const [selectedPalette, setSelectedPalette] = useState<number>(character?.palette ?? 0);
+  const [selectedHueShift, setSelectedHueShift] = useState<number>(character?.hueShift ?? 0);
+  const [saving, setSaving] = useState(false);
+
+  const hasChanges = character != null && (
+    selectedPalette !== character.palette || selectedHueShift !== character.hueShift
+  );
+
   const name = character?.folderName || `Agent #${agentId}`;
   const project = monitoredProjects.find((p) => p.id === character?.projectId);
 
@@ -264,7 +328,15 @@ export function AgentDetailModal({
         {/* Header */}
         <div style={headerStyle}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-            {character && <CharacterPreview character={character} />}
+            {character && (
+              <CharacterPreview
+                character={
+                  character.openclawAgentId
+                    ? { ...character, palette: selectedPalette, hueShift: selectedHueShift }
+                    : character
+                }
+              />
+            )}
             <span style={{ fontSize: '16px', fontWeight: 'bold', color: 'var(--pixel-accent)' }}>
               {name}
             </span>
@@ -329,6 +401,108 @@ export function AgentDetailModal({
             </span>
           </div>
         </div>
+
+        {/* Character Selection */}
+        {character?.openclawAgentId && (
+          <div style={{ borderTop: '1px solid rgba(255,255,255,0.06)', padding: '8px 0' }}>
+            <div style={sectionHeaderStyle}>Character</div>
+
+            {/* Male palettes */}
+            <div style={{ padding: '4px 16px 2px', fontSize: '11px', color: 'var(--pixel-text-dim)' }}>
+              Male
+            </div>
+            <div style={{ display: 'flex', gap: 8, padding: '4px 16px' }}>
+              {MALE_PALETTES.map((p) => (
+                <div
+                  key={p}
+                  onClick={() => setSelectedPalette(p)}
+                  style={{
+                    cursor: 'pointer',
+                    border: selectedPalette === p
+                      ? '2px solid var(--pixel-accent)'
+                      : '2px solid transparent',
+                    padding: 2,
+                    background: selectedPalette === p ? 'rgba(255,255,255,0.06)' : 'transparent',
+                  }}
+                >
+                  <MiniCharacterPreview palette={p} hueShift={selectedPalette === p ? selectedHueShift : 0} />
+                </div>
+              ))}
+            </div>
+
+            {/* Female palettes */}
+            <div style={{ padding: '4px 16px 2px', fontSize: '11px', color: 'var(--pixel-text-dim)' }}>
+              Female
+            </div>
+            <div style={{ display: 'flex', gap: 8, padding: '4px 16px' }}>
+              {FEMALE_PALETTES.map((p) => (
+                <div
+                  key={p}
+                  onClick={() => setSelectedPalette(p)}
+                  style={{
+                    cursor: 'pointer',
+                    border: selectedPalette === p
+                      ? '2px solid var(--pixel-accent)'
+                      : '2px solid transparent',
+                    padding: 2,
+                    background: selectedPalette === p ? 'rgba(255,255,255,0.06)' : 'transparent',
+                  }}
+                >
+                  <MiniCharacterPreview palette={p} hueShift={selectedPalette === p ? selectedHueShift : 0} />
+                </div>
+              ))}
+            </div>
+
+            {/* Hue Shift slider */}
+            <div style={{ padding: '8px 16px', display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span style={{ fontSize: '11px', color: 'var(--pixel-text-dim)', flexShrink: 0 }}>Hue Shift</span>
+              <input
+                type="range"
+                min={0}
+                max={315}
+                step={45}
+                value={selectedHueShift}
+                onChange={(e) => setSelectedHueShift(Number(e.target.value))}
+                style={{ flex: 1 }}
+              />
+              <span style={{ fontSize: '11px', color: 'var(--pixel-text)', minWidth: 30, textAlign: 'right' }}>
+                {selectedHueShift}°
+              </span>
+            </div>
+
+            {/* Save button */}
+            <div style={{ padding: '4px 16px 8px', display: 'flex', justifyContent: 'flex-end' }}>
+              <button
+                disabled={!hasChanges || saving}
+                onClick={async () => {
+                  if (!character?.openclawAgentId) return;
+                  setSaving(true);
+                  const gender = MALE_PALETTES.includes(selectedPalette) ? 'male' : 'female';
+                  const agentKey = `openclaw:${character.openclawAgentId}`;
+                  try {
+                    await fetch(`/api/config/appearances/${agentKey}`, {
+                      method: 'PUT',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ gender, palette: selectedPalette, hueShift: selectedHueShift }),
+                    });
+                    // Update OfficeState directly
+                    character.palette = selectedPalette;
+                    character.hueShift = selectedHueShift;
+                  } finally {
+                    setSaving(false);
+                  }
+                }}
+                style={{
+                  ...btnStyle,
+                  opacity: (!hasChanges || saving) ? 0.4 : 1,
+                  cursor: (!hasChanges || saving) ? 'default' : 'pointer',
+                }}
+              >
+                {saving ? 'Saving...' : 'Save'}
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* Current Tools */}
         {activeTools.length > 0 && (
