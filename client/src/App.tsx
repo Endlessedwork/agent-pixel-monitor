@@ -248,25 +248,30 @@ function App() {
     const os = getOfficeState();
     os.cameraFollowId = null;
     os.selectedAgentId = null;
-    // Fit map width to viewport so it fills left-to-right
+    // Fit map to viewport
     const layout = os.getLayout();
     const canvas = document.querySelector('canvas');
     if (canvas && layout.cols > 0 && layout.rows > 0) {
       const dpr = window.devicePixelRatio || 1;
       const canvasW = canvas.clientWidth * dpr;
       const canvasH = canvas.clientHeight * dpr;
-      let fitZoom = Math.round(canvasW / (layout.cols * TILE_SIZE));
+      // On mobile: fit to the smaller dimension so map is fully visible
+      const fitZoomW = Math.round(canvasW / (layout.cols * TILE_SIZE));
+      const fitZoomH = Math.round(canvasH / (layout.rows * TILE_SIZE));
+      let fitZoom = isMobile ? Math.min(fitZoomW, fitZoomH) : fitZoomW;
       if (isMobile) fitZoom = Math.min(fitZoom, 4);
       const clampedZoom = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, fitZoom));
       editor.handleZoomChange(clampedZoom);
-      // Center vertically: offset so map is centered in viewport
+      // Center both axes
+      const mapWidth = layout.cols * TILE_SIZE * clampedZoom;
       const mapHeight = layout.rows * TILE_SIZE * clampedZoom;
+      const panX = (canvasW - mapWidth) / 2;
       const panY = (canvasH - mapHeight) / 2;
-      editor.panRef.current = { x: 0, y: panY };
+      editor.panRef.current = { x: panX, y: panY };
     } else {
       editor.panRef.current = { x: 0, y: 0 };
     }
-  }, [editor]);
+  }, [editor, isMobile]);
 
   // Center view on initial layout load
   useEffect(() => {
