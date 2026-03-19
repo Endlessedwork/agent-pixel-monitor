@@ -5,7 +5,10 @@ import { AddProjectModal } from './components/AddProjectModal.js';
 import { AgentDetailModal } from './components/AgentDetailModal.js';
 import { BottomToolbar } from './components/BottomToolbar.js';
 import { DebugView } from './components/DebugView.js';
+import { MobileActivitySheet } from './components/MobileActivitySheet.js';
+import { MobileAgentDetail } from './components/MobileAgentDetail.js';
 import { ZoomControls } from './components/ZoomControls.js';
+import { useMobileDetect } from './hooks/useMobileDetect.js';
 import { PULSE_ANIMATION_DURATION_SEC, TILE_SIZE, ZOOM_MAX, ZOOM_MIN } from './constants.js';
 import { useEditorActions } from './hooks/useEditorActions.js';
 import { useEditorKeyboard } from './hooks/useEditorKeyboard.js';
@@ -174,6 +177,22 @@ function App() {
   const [detailAgentId, setDetailAgentId] = useState<number | null>(null);
   const [showInactiveAgentsLocal, setShowInactiveAgentsLocal] = useState(true);
 
+  const { isMobile } = useMobileDetect();
+  const [mobileActivityOpen, setMobileActivityOpen] = useState(false);
+  const [mobileAgentId, setMobileAgentId] = useState<number | null>(null);
+
+  const isSheetOpen = mobileActivityOpen || mobileAgentId !== null;
+
+  const handleMobileActivityOpen = useCallback(() => {
+    setMobileAgentId(null);
+    setMobileActivityOpen(true);
+  }, []);
+
+  const handleMobileAgentTap = useCallback((agentId: number) => {
+    setMobileActivityOpen(false);
+    setMobileAgentId(agentId);
+  }, []);
+
   // Sync showInactiveAgents from server config
   useEffect(() => {
     setShowInactiveAgentsLocal(showInactiveAgents);
@@ -236,7 +255,8 @@ function App() {
       const dpr = window.devicePixelRatio || 1;
       const canvasW = canvas.clientWidth * dpr;
       const canvasH = canvas.clientHeight * dpr;
-      const fitZoom = Math.round(canvasW / (layout.cols * TILE_SIZE));
+      let fitZoom = Math.round(canvasW / (layout.cols * TILE_SIZE));
+      if (isMobile) fitZoom = Math.min(fitZoom, 4);
       const clampedZoom = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, fitZoom));
       editor.handleZoomChange(clampedZoom);
       // Center vertically: offset so map is centered in viewport
@@ -344,9 +364,12 @@ function App() {
         zoom={editor.zoom}
         onZoomChange={editor.handleZoomChange}
         panRef={editor.panRef}
+        isMobile={isMobile}
+        isSheetOpen={isSheetOpen}
+        onAgentTap={isMobile ? handleMobileAgentTap : undefined}
       />
 
-      {!isDebugMode && <ZoomControls zoom={editor.zoom} onZoomChange={editor.handleZoomChange} onCenter={handleCenterView} />}
+      {!isDebugMode && <ZoomControls zoom={editor.zoom} onZoomChange={editor.handleZoomChange} onCenter={handleCenterView} isMobile={isMobile} />}
 
       {/* Vignette overlay */}
       <div
@@ -359,17 +382,19 @@ function App() {
         }}
       />
 
-      <BottomToolbar
-        isEditMode={editor.isEditMode}
-        onAddProject={handleOpenAddProject}
-        onToggleEditMode={editor.handleToggleEditMode}
-        isDebugMode={isDebugMode}
-        onToggleDebugMode={handleToggleDebugMode}
-        isActivityOpen={isActivityOpen}
-        onToggleActivity={handleToggleActivity}
-        showInactiveAgents={showInactiveAgentsLocal}
-        onToggleShowInactiveAgents={handleToggleShowInactiveAgents}
-      />
+      <div className="desktop-only">
+        <BottomToolbar
+          isEditMode={editor.isEditMode}
+          onAddProject={handleOpenAddProject}
+          onToggleEditMode={editor.handleToggleEditMode}
+          isDebugMode={isDebugMode}
+          onToggleDebugMode={handleToggleDebugMode}
+          isActivityOpen={isActivityOpen}
+          onToggleActivity={handleToggleActivity}
+          showInactiveAgents={showInactiveAgentsLocal}
+          onToggleShowInactiveAgents={handleToggleShowInactiveAgents}
+        />
+      </div>
 
       <AddProjectModal
         isOpen={isAddProjectOpen}
@@ -377,9 +402,11 @@ function App() {
         projects={projectsForModal}
       />
 
-      {editor.isEditMode && editor.isDirty && (
-        <EditActionBar editor={editor} editorState={editorState} />
-      )}
+      <div className="desktop-only">
+        {editor.isEditMode && editor.isDirty && (
+          <EditActionBar editor={editor} editorState={editorState} />
+        )}
+      </div>
 
       {showRotateHint && (
         <div
@@ -404,34 +431,36 @@ function App() {
         </div>
       )}
 
-      {editor.isEditMode &&
-        (() => {
-          // Compute selected furniture color from current layout
-          const selUid = editorState.selectedFurnitureUid;
-          const selColor = selUid
-            ? (officeState.getLayout().furniture.find((f) => f.uid === selUid)?.color ?? null)
-            : null;
-          return (
-            <EditorToolbar
-              activeTool={editorState.activeTool}
-              selectedTileType={editorState.selectedTileType}
-              selectedFurnitureType={editorState.selectedFurnitureType}
-              selectedFurnitureUid={selUid}
-              selectedFurnitureColor={selColor}
-              floorColor={editorState.floorColor}
-              wallColor={editorState.wallColor}
-              selectedWallSet={editorState.selectedWallSet}
-              onToolChange={editor.handleToolChange}
-              onTileTypeChange={editor.handleTileTypeChange}
-              onFloorColorChange={editor.handleFloorColorChange}
-              onWallColorChange={editor.handleWallColorChange}
-              onWallSetChange={editor.handleWallSetChange}
-              onSelectedFurnitureColorChange={editor.handleSelectedFurnitureColorChange}
-              onFurnitureTypeChange={editor.handleFurnitureTypeChange}
-              loadedAssets={loadedAssets}
-            />
-          );
-        })()}
+      <div className="desktop-only">
+        {editor.isEditMode &&
+          (() => {
+            // Compute selected furniture color from current layout
+            const selUid = editorState.selectedFurnitureUid;
+            const selColor = selUid
+              ? (officeState.getLayout().furniture.find((f) => f.uid === selUid)?.color ?? null)
+              : null;
+            return (
+              <EditorToolbar
+                activeTool={editorState.activeTool}
+                selectedTileType={editorState.selectedTileType}
+                selectedFurnitureType={editorState.selectedFurnitureType}
+                selectedFurnitureUid={selUid}
+                selectedFurnitureColor={selColor}
+                floorColor={editorState.floorColor}
+                wallColor={editorState.wallColor}
+                selectedWallSet={editorState.selectedWallSet}
+                onToolChange={editor.handleToolChange}
+                onTileTypeChange={editor.handleTileTypeChange}
+                onFloorColorChange={editor.handleFloorColorChange}
+                onWallColorChange={editor.handleWallColorChange}
+                onWallSetChange={editor.handleWallSetChange}
+                onSelectedFurnitureColorChange={editor.handleSelectedFurnitureColorChange}
+                onFurnitureTypeChange={editor.handleFurnitureTypeChange}
+                loadedAssets={loadedAssets}
+              />
+            );
+          })()}
+      </div>
 
       {!isDebugMode && (
         <SpeechBubble
@@ -467,15 +496,17 @@ function App() {
         />
       )}
 
-      {isActivityOpen && !isDebugMode && (
-        <ActivitySidebar
-          activityLog={activityLog}
-          agents={agents}
-          agentNames={agentNames}
-        />
-      )}
+      <div className="desktop-only">
+        {isActivityOpen && !isDebugMode && (
+          <ActivitySidebar
+            activityLog={activityLog}
+            agents={agents}
+            agentNames={agentNames}
+          />
+        )}
+      </div>
 
-      {detailAgentId !== null && !isDebugMode && !editor.isEditMode && (
+      {!isMobile && detailAgentId !== null && !isDebugMode && !editor.isEditMode && (
         <AgentDetailModal
           agentId={detailAgentId}
           officeState={officeState}
@@ -486,6 +517,50 @@ function App() {
           onClose={handleCloseDetail}
           onCloseAgent={handleCloseAgent}
         />
+      )}
+
+      {/* Mobile components */}
+      {isMobile && (
+        <>
+          {/* Activity sheet handle (always visible as collapsed bar) */}
+          <div
+            onClick={handleMobileActivityOpen}
+            style={{
+              position: 'fixed',
+              bottom: 0,
+              left: 0,
+              right: 0,
+              background: 'var(--pixel-bg, #1e1e2e)',
+              borderTop: '2px solid var(--pixel-accent, #5a8cff)',
+              padding: '6px',
+              textAlign: 'center',
+              zIndex: 55,
+              cursor: 'pointer',
+              paddingBottom: 'max(6px, env(safe-area-inset-bottom))',
+            }}
+          >
+            <div style={{ width: 36, height: 3, background: '#555', borderRadius: 2, margin: '0 auto 4px' }} />
+            <div style={{ fontSize: 10, color: 'var(--pixel-accent, #5a8cff)' }}>
+              Activity Log — {activityLog.length} entries ↑
+            </div>
+          </div>
+
+          <MobileActivitySheet
+            activities={activityLog}
+            isOpen={mobileActivityOpen}
+            onClose={() => setMobileActivityOpen(false)}
+            agentCount={officeState.characters.size}
+          />
+
+          <MobileAgentDetail
+            agentId={mobileAgentId}
+            officeState={officeState}
+            agentTools={agentTools}
+            agentStatuses={agentStatuses}
+            monitoredProjects={monitoredProjects}
+            onClose={() => setMobileAgentId(null)}
+          />
+        </>
       )}
 
       {showMigrationNotice && (
