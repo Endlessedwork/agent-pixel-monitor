@@ -2,6 +2,7 @@ import { useState } from 'react';
 
 import { isSoundEnabled, setSoundEnabled } from '../notificationSound.js';
 import { wsClient } from '../wsClient.js';
+import { AgentAppearanceSettings } from './AgentAppearanceSettings.js';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -33,6 +34,7 @@ export function SettingsModal({
 }: SettingsModalProps) {
   const [hovered, setHovered] = useState<string | null>(null);
   const [soundLocal, setSoundLocal] = useState(isSoundEnabled);
+  const [showAppearances, setShowAppearances] = useState(false);
 
   if (!isOpen) return null;
 
@@ -175,6 +177,17 @@ export function SettingsModal({
           </span>
         </button>
         <button
+          onClick={() => setShowAppearances(true)}
+          onMouseEnter={() => setHovered('appearances')}
+          onMouseLeave={() => setHovered(null)}
+          style={{
+            ...menuItemBase,
+            background: hovered === 'appearances' ? 'rgba(255, 255, 255, 0.08)' : 'transparent',
+          }}
+        >
+          Agent Appearances
+        </button>
+        <button
           onClick={onToggleDebugMode}
           onMouseEnter={() => setHovered('debug')}
           onMouseLeave={() => setHovered(null)}
@@ -197,6 +210,10 @@ export function SettingsModal({
           )}
         </button>
       </div>
+      <AgentAppearanceSettings
+        isOpen={showAppearances}
+        onClose={() => setShowAppearances(false)}
+      />
     </>
   );
 }
