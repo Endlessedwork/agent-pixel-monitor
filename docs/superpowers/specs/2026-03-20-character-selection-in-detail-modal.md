@@ -46,6 +46,7 @@ The new section appears between the Info and Current Tools sections:
 ### Hue shift slider
 
 - `<input type="range">` with min=0, max=315, step=45
+- Value 0 means "no shift" (original palette colors); 45-315 shift the hue
 - Displays current degree value next to slider
 - Changes update header preview immediately (live)
 
@@ -76,25 +77,35 @@ The new section appears between the Info and Current Tools sections:
 1. Call `PUT /api/config/appearances/:agentKey` with `{ gender, palette, hueShift }`
    - `gender` is derived from selected palette: palettes 0,4 → `"male"`, palettes 1,2,3,5 → `"female"`
    - `agentKey` format: `"openclaw:<agentId>"`
-2. Server persists to `~/.pixel-agents-monitor/config.json` and broadcasts `configUpdated` via WebSocket
-3. All connected clients update the character on the map
+2. Server persists to `~/.pixel-agents-monitor/config.json` (no WebSocket broadcast — appearance API is REST-only)
+3. After successful save, update the character in `OfficeState` directly:
+   - Set `character.palette` and `character.hueShift` on the Character object in `officeState.characters`
+   - Sprite cache for the old palette/hueShift combo may still be in memory (this is fine — cache is keyed by palette+hueShift)
+   - The canvas game loop will pick up the new values on the next render frame
+4. Only the current client is updated. Other clients will see the change on their next page load or reconnect.
 
 ## Implementation Scope
 
 ### Files to modify
 
 - **`client/src/components/AgentDetailModal.tsx`** — add Character section, local state, Save handler, mini CharacterPreview grid
+- **`client/src/office/engine/officeState.ts`** — export `MALE_PALETTES` and `FEMALE_PALETTES` (currently module-private)
 
 ### No new files or components
 
-- Reuse existing `CharacterPreview` component (already in AgentDetailModal.tsx)
+- Reuse existing `CharacterPreview` component (already in AgentDetailModal.tsx) — construct minimal `Character` objects with just `palette` and `hueShift` for each grid preview
 - Reuse existing REST API (`PUT /api/config/appearances/:agentKey`)
 - No server changes needed
 
 ### Constants used
 
-- `MALE_PALETTES = [0, 4]` and `FEMALE_PALETTES = [1, 2, 3, 5]` from `officeState.ts`
+- `MALE_PALETTES = [0, 4]` and `FEMALE_PALETTES = [1, 2, 3, 5]` from `officeState.ts` (need to export)
 - `PALETTE_COUNT = 6` from `client/src/constants.ts`
+
+### Edge cases
+
+- If `character` becomes undefined while modal is open (agent closes), the Character section is hidden (existing guard: `character &&`)
+- If the agent has no `openclawAgentId`, the Character section is not rendered
 
 ## Out of Scope
 
