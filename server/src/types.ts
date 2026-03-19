@@ -19,6 +19,7 @@ export interface AgentState {
   isVirtual: boolean;
   readonly openclawAgentId?: string;
   readonly agentName?: string;
+  readonly identityGender?: 'male' | 'female' | 'any';
 }
 
 // ── Agent Appearance ──────────────────────────────────────────
@@ -52,14 +53,14 @@ export interface AppConfig {
 // ── WebSocket Messages (server → client) ─────────────────────
 
 export type ServerMessage =
-  | { readonly type: 'agentCreated'; readonly id: number; readonly folderName?: string; readonly source: string; readonly projectId?: string; readonly openclawAgentId?: string; readonly agentName?: string; readonly isActive?: boolean }
+  | { readonly type: 'agentCreated'; readonly id: number; readonly folderName?: string; readonly source: string; readonly projectId?: string; readonly openclawAgentId?: string; readonly agentName?: string; readonly isActive?: boolean; readonly identityGender?: 'male' | 'female' | 'any' }
   | { readonly type: 'agentClosed'; readonly id: number }
   | { readonly type: 'agentActivated'; readonly id: number }
   | { readonly type: 'agentDeactivated'; readonly id: number }
   | {
       readonly type: 'existingAgents';
       readonly agents: readonly number[];
-      readonly agentMeta: Readonly<Record<number, { readonly folderName?: string; readonly source: string; readonly projectId?: string; readonly openclawAgentId?: string; readonly agentName?: string; readonly isActive?: boolean }>>;
+      readonly agentMeta: Readonly<Record<number, { readonly folderName?: string; readonly source: string; readonly projectId?: string; readonly openclawAgentId?: string; readonly agentName?: string; readonly isActive?: boolean; readonly identityGender?: 'male' | 'female' | 'any' }>>;
     }
   | { readonly type: 'agentStatus'; readonly id: number; readonly status: 'active' | 'waiting' }
   | { readonly type: 'agentToolStart'; readonly id: number; readonly toolId: string; readonly status: string }
@@ -83,7 +84,20 @@ export type ServerMessage =
   | { readonly type: 'floorTilesLoaded'; readonly sprites: unknown }
   | { readonly type: 'wallTilesLoaded'; readonly sets: unknown }
   | { readonly type: 'furnitureAssetsLoaded'; readonly catalog: unknown; readonly sprites: unknown }
-  | { readonly type: 'settingsLoaded'; readonly soundEnabled: boolean };
+  | { readonly type: 'settingsLoaded'; readonly soundEnabled: boolean }
+  | { readonly type: 'existingActivities'; readonly activities: readonly ActivityRecord[] };
+
+// ── Activity Record (server-side activity log entry) ─────────
+
+export interface ActivityRecord {
+  readonly id: string;
+  readonly agentId: number;
+  readonly toolName: string;
+  readonly status: string;
+  readonly timestamp: number;
+  readonly done: boolean;
+  readonly permissionWait: boolean;
+}
 
 // ── WebSocket Messages (client → server) ─────────────────────
 

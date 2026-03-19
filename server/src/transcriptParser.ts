@@ -70,11 +70,21 @@ export function processTranscriptLine(
     const record = JSON.parse(line);
 
     if (record.type === 'assistant' && Array.isArray(record.message?.content)) {
+      // Claude Code format: { type: 'assistant', message: { content: [...] } }
       processAssistantRecord(agentId, record, agent, agents, waitingTimers, permissionTimers, sendMessage);
+    } else if (record.type === 'message' && record.message?.role === 'assistant') {
+      // OpenClaw format: { type: 'message', message: { role: 'assistant', content: [...] } }
+      processAssistantRecord(agentId, record, agent, agents, waitingTimers, permissionTimers, sendMessage);
+    } else if (record.type === 'message' && record.message?.role === 'toolResult') {
+      // OpenClaw format: { type: 'message', message: { role: 'toolResult', toolCallId: '...' } }
+      processOpenclawToolResult(agentId, record, agent, waitingTimers, permissionTimers, sendMessage);
     } else if (record.type === 'progress') {
       processProgressRecord(agentId, record, agents, waitingTimers, permissionTimers, sendMessage);
     } else if (record.type === 'user') {
       processUserRecord(agentId, record, agent, waitingTimers, permissionTimers, sendMessage);
+    } else if (record.type === 'message' && record.message?.role === 'user') {
+      // OpenClaw format for user messages
+      processUserRecord(agentId, { ...record, type: 'user' }, agent, waitingTimers, permissionTimers, sendMessage);
     } else if (record.type === 'system' && record.subtype === 'turn_duration') {
       processTurnDuration(agentId, agent, waitingTimers, permissionTimers, sendMessage);
     }
@@ -99,7 +109,8 @@ function processAssistantRecord(
     name?: string;
     input?: Record<string, unknown>;
   }>;
-  const hasToolUse = blocks.some((b) => b.type === 'tool_use');
+  // Support both Claude Code ('tool_use') and OpenClaw ('toolCall') formats
+  const hasToolUse = blocks.some((b) => b.type === 'tool_use' || b.type === 'toolCall');
 
   if (hasToolUse) {
     cancelWaitingTimer(agentId, waitingTimers);
@@ -108,9 +119,10 @@ function processAssistantRecord(
     sendMessage({ type: 'agentStatus', id: agentId, status: 'active' });
     let hasNonExemptTool = false;
     for (const block of blocks) {
-      if (block.type === 'tool_use' && block.id) {
+      if ((block.type === 'tool_use' || block.type === 'toolCall') && block.id) {
         const toolName = block.name || '';
-        const status = formatToolStatus(toolName, block.input || {});
+        const input = (block as Record<string, unknown>).input || (block as Record<string, unknown>).arguments || {};
+        const status = formatToolStatus(toolName, input as Record<string, unknown>);
         console.log(`[Pixel Agents] Agent ${agentId} tool start: ${block.id} ${status}`);
         agent.activeToolIds.add(block.id);
         agent.activeToolStatuses.set(block.id, status);
@@ -187,6 +199,40 @@ function processUserRecord(
   } else if (typeof content === 'string' && content.trim()) {
     cancelWaitingTimer(agentId, waitingTimers);
     clearAgentActivity(agent, agentId, permissionTimers, sendMessage);
+    agent.hadToolsInTurn = false;
+  }
+}
+
+/** Handle OpenClaw toolResult records (role: 'toolResult' at message level, not nested in content) */
+function processOpenclawToolResult(
+  agentId: number,
+  record: Record<string, unknown>,
+  agent: AgentState,
+  waitingTimers: Map<number, ReturnType<typeof setTimeout>>,
+  permissionTimers: Map<number, ReturnType<typeof setTimeout>>,
+  sendMessage: MessageSender,
+): void {
+  const message = record.message as Record<string, unknown> | undefined;
+  if (!message) return;
+  const toolCallId = message.toolCallId as string | undefined;
+  if (!toolCallId) return;
+
+  console.log(`[Pixel Agents] Agent ${agentId} tool done: ${toolCallId}`);
+  const completedToolName = agent.activeToolNames.get(toolCallId);
+  if (completedToolName === 'Task' || completedToolName === 'Agent') {
+    agent.activeSubagentToolIds.delete(toolCallId);
+    agent.activeSubagentToolNames.delete(toolCallId);
+    sendMessage({ type: 'subagentClear', id: agentId, parentToolId: toolCallId });
+  }
+  agent.activeToolIds.delete(toolCallId);
+  agent.activeToolStatuses.delete(toolCallId);
+  agent.activeToolNames.delete(toolCallId);
+  const toolId = toolCallId;
+  setTimeout(() => {
+    sendMessage({ type: 'agentToolDone', id: agentId, toolId });
+  }, TOOL_DONE_DELAY_MS);
+
+  if (agent.activeToolIds.size === 0) {
     agent.hadToolsInTurn = false;
   }
 }

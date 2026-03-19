@@ -17,6 +17,10 @@ export const WANDER_MOVES_BEFORE_REST_MIN = 3;
 export const WANDER_MOVES_BEFORE_REST_MAX = 6;
 export const SEAT_REST_MIN_SEC = 120.0;
 export const SEAT_REST_MAX_SEC = 240.0;
+export const SIT_FRAME_DURATION_SEC = 1.0;
+export const LOUNGE_SIT_MIN_SEC = 8.0;
+export const LOUNGE_SIT_MAX_SEC = 20.0;
+export const LOUNGE_CHANCE = 0.4;
 
 // -- Matrix Effect ----
 export const MATRIX_EFFECT_DURATION_SEC = 0.3;

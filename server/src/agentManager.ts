@@ -13,7 +13,7 @@ import {
   cancelWaitingTimer,
   clearAgentActivity,
 } from './timerManager.js';
-import type { AgentState, MessageSender, MonitoredProject } from './types.js';
+import type { ActivityRecord, AgentState, MessageSender, MonitoredProject } from './types.js';
 
 // Extract the OpenClaw agent ID from a JSONL file path.
 // Path format: ~/.openclaw/agents/<AGENT_ID>/sessions/<uuid>.jsonl
@@ -37,10 +37,69 @@ function readOpenclawAgentName(openclawDir: string, agentId: string): string | u
   }
 }
 
+// Read the agent identity from workspace/IDENTITY.md.
+// Returns parsed name and gender if the file exists.
+interface AgentIdentity {
+  name?: string;
+  gender?: 'male' | 'female' | 'any';
+}
+
+function readAgentIdentity(openclawDir: string, agentId: string): AgentIdentity {
+  const identity: AgentIdentity = {};
+  try {
+    // OpenClaw workspace paths:
+    //   main agent  → <openclawDir>/workspace/IDENTITY.md
+    //   other agents → <openclawDir>/workspace-<agentId>/IDENTITY.md
+    //   fallback    → <openclawDir>/agents/<agentId>/workspace/IDENTITY.md
+    const candidates = agentId === 'main'
+      ? [
+          path.join(openclawDir, 'workspace', 'IDENTITY.md'),
+          path.join(openclawDir, 'agents', agentId, 'workspace', 'IDENTITY.md'),
+        ]
+      : [
+          path.join(openclawDir, 'workspace-' + agentId, 'IDENTITY.md'),
+          path.join(openclawDir, 'agents', agentId, 'workspace', 'IDENTITY.md'),
+        ];
+    const identityPath = candidates.find((p) => fs.existsSync(p));
+    if (!identityPath) return identity;
+    const content = fs.readFileSync(identityPath, 'utf-8');
+
+    // Parse **Name:** value (skip placeholder text like "*(pick something...)*")
+    const nameMatch = content.match(/\*\*Name:\*\*\s*(.+)/);
+    if (nameMatch) {
+      const raw = nameMatch[1].trim();
+      // Ignore empty or placeholder values
+      if (raw && !raw.startsWith('*(') && !raw.startsWith('_(') && !raw.startsWith('(')) {
+        identity.name = raw;
+      }
+    }
+
+    // Parse **Gender:** value — map Thai/English to male/female/any
+    const genderMatch = content.match(/\*\*Gender:\*\*\s*(.+)/);
+    if (genderMatch) {
+      const raw = genderMatch[1].toLowerCase();
+      if (raw.includes('ผู้หญิง') || raw.includes('female') || raw.includes('woman') || raw.includes('หญิง')) {
+        identity.gender = 'female';
+      } else if (raw.includes('ผู้ชาย') || raw.includes('male') || raw.includes('man') || raw.includes('ชาย')) {
+        identity.gender = 'male';
+      }
+    }
+  } catch { /* ignore */ }
+  return identity;
+}
+
 // Find the internal agent ID for a virtual agent by its OpenClaw agent ID.
 function findVirtualAgentByOpenclawId(openclawAgentId: string, state: AgentManagerState): number | null {
   for (const [id, agent] of state.agents) {
     if (agent.openclawAgentId === openclawAgentId && agent.isVirtual) return id;
+  }
+  return null;
+}
+
+// Find the internal agent ID for an active (non-virtual) agent by its OpenClaw agent ID.
+function findActiveAgentByOpenclawId(openclawAgentId: string, state: AgentManagerState): number | null {
+  for (const [id, agent] of state.agents) {
+    if (agent.openclawAgentId === openclawAgentId && !agent.isVirtual) return id;
   }
   return null;
 }
@@ -52,6 +111,7 @@ function createVirtualAgent(
   project: MonitoredProject,
   state: AgentManagerState,
   sendMessage: MessageSender,
+  identityGender?: 'male' | 'female' | 'any',
 ): number {
   const id = state.nextAgentId.current++;
   const agent: AgentState = {
@@ -73,10 +133,11 @@ function createVirtualAgent(
     isVirtual: true,
     openclawAgentId,
     agentName,
+    identityGender,
   };
   state.agents.set(id, agent);
-  console.log(`[AgentManager] Virtual agent ${id}: ${agentName || openclawAgentId} (inactive)`);
-  sendMessage({ type: 'agentCreated', id, folderName: agent.folderName, source: 'openclaw', projectId: project.id, openclawAgentId, agentName, isActive: false });
+  console.log(`[AgentManager] Virtual agent ${id}: ${agentName || openclawAgentId} (inactive)${identityGender ? ` [${identityGender}]` : ''}`);
+  sendMessage({ type: 'agentCreated', id, folderName: agent.folderName, source: 'openclaw', projectId: project.id, openclawAgentId, agentName, isActive: false, identityGender });
   return id;
 }
 
@@ -152,7 +213,10 @@ export function seedInactiveOpenclawAgents(
       }
       if (exists) continue;
 
-      createVirtualAgent(dir, agentNames[dir], project, state, sendMessage);
+      // Read identity from workspace/IDENTITY.md
+      const identity = readAgentIdentity(openclawDir, dir);
+      const name = identity.name || agentNames[dir];
+      createVirtualAgent(dir, name, project, state, sendMessage, identity.gender);
     }
   } catch { /* ignore */ }
 }
@@ -192,6 +256,7 @@ export interface AgentManagerState {
   readonly pollingTimers: Map<number, ReturnType<typeof setInterval>>;
   readonly waitingTimers: Map<number, ReturnType<typeof setTimeout>>;
   readonly permissionTimers: Map<number, ReturnType<typeof setTimeout>>;
+  readonly activityLog: ActivityRecord[];
   readonly jsonlPollTimers: Map<number, ReturnType<typeof setInterval>>;
   readonly knownJsonlFiles: Map<string, Set<string>>;
   readonly projectScanTimers: Map<string, ReturnType<typeof setInterval>>;
@@ -211,6 +276,7 @@ export function createAgentManagerState(showInactiveAgents = true): AgentManager
     projectScanTimers: new Map(),
     nextAgentId: { current: 1 },
     showInactiveAgents: { current: showInactiveAgents },
+    activityLog: [],
   };
 }
 
@@ -248,14 +314,15 @@ export function startProjectMonitoring(
   }
   state.knownJsonlFiles.set(projectId, knownFiles);
 
-  // Create agents for active sessions found during seed (skip existing content)
-  for (const file of activeFiles) {
-    createAgent(file, project, state, sendMessage, true);
-  }
-
-  // Seed virtual agents for inactive OpenClaw agents
+  // Seed virtual agents for inactive OpenClaw agents FIRST
+  // (so createAgent can find and upgrade them instead of creating duplicates)
   if (project.source === 'openclaw') {
     seedInactiveOpenclawAgents(project, state, sendMessage);
+  }
+
+  // Create/upgrade agents for active sessions found during seed (skip existing content)
+  for (const file of activeFiles) {
+    createAgent(file, project, state, sendMessage, true);
   }
 
   // Scan for new JSONL files at the determined session directory
@@ -326,12 +393,12 @@ function scanForNewJsonlFiles(
     if (!knownFiles.has(file)) {
       knownFiles.add(file);
 
-      // Check if this file is recent (created within the last 60 seconds)
+      // Check if this file is recent (modified within the last 60 seconds)
       try {
         const stat = fs.statSync(file);
-        const ageMs = Date.now() - stat.birthtimeMs;
-        if (ageMs > 60_000) {
-          // File is old, skip it (was created before we started monitoring)
+        const modifiedAgoMs = Date.now() - stat.mtimeMs;
+        if (modifiedAgoMs > 60_000) {
+          // File hasn't been modified recently, skip it
           continue;
         }
       } catch {
@@ -348,18 +415,38 @@ function scanForNewJsonlFiles(
       }
       if (alreadyTracked) continue;
 
-      // Check if there is an active agent on this project that should be reassigned
-      // (similar to /clear detection in the original)
-      const existingAgent = findActiveAgentForProject(projectId, state);
-      if (existingAgent !== null) {
-        console.log(
-          `[AgentManager] New JSONL detected: ${path.basename(file)}, reassigning to agent ${existingAgent}`,
-        );
-        reassignAgentToFile(existingAgent, file, state, sendMessage);
+      // For OpenClaw: check if this file belongs to a virtual agent that should be upgraded
+      if (source === 'openclaw') {
+        const openclawAgentId = extractOpenclawAgentId(file);
+        if (openclawAgentId) {
+          const virtualId = findVirtualAgentByOpenclawId(openclawAgentId, state);
+          if (virtualId !== null) {
+            upgradeVirtualAgent(virtualId, file, state, sendMessage);
+            continue;
+          }
+          // Check if this agent already has an active session (reassign on /clear)
+          const existingActiveId = findActiveAgentByOpenclawId(openclawAgentId, state);
+          if (existingActiveId !== null) {
+            console.log(
+              `[AgentManager] New JSONL detected: ${path.basename(file)}, reassigning to agent ${existingActiveId}`,
+            );
+            reassignAgentToFile(existingActiveId, file, state, sendMessage);
+            continue;
+          }
+        }
       } else {
-        // Create new agent for this file
-        createAgent(file, project, state, sendMessage);
+        // Claude Code: check if there is an active agent that should be reassigned
+        const existingAgent = findActiveAgentForProject(projectId, state);
+        if (existingAgent !== null) {
+          console.log(
+            `[AgentManager] New JSONL detected: ${path.basename(file)}, reassigning to agent ${existingAgent}`,
+          );
+          reassignAgentToFile(existingAgent, file, state, sendMessage);
+          continue;
+        }
       }
+      // Create new agent for this file
+      createAgent(file, project, state, sendMessage);
     }
   }
 
@@ -458,6 +545,7 @@ export function createAgent(
   // Extract OpenClaw agent identity if applicable
   let openclawAgentId: string | undefined;
   let agentName: string | undefined;
+  let identityGender: 'male' | 'female' | 'any' | undefined;
   if (project.source === 'openclaw') {
     openclawAgentId = extractOpenclawAgentId(jsonlFile);
     if (openclawAgentId) {
@@ -472,8 +560,14 @@ export function createAgent(
       // <root>/agents/<id>/sessions/<file> → go up 3 levels from the sessions dir
       const openclawDir = path.resolve(path.dirname(jsonlFile), '..', '..', '..');
       agentName = readOpenclawAgentName(openclawDir, openclawAgentId);
+
+      // Read identity from workspace IDENTITY.md (may override name)
+      const identity = readAgentIdentity(openclawDir, openclawAgentId);
+      if (identity.name) agentName = identity.name;
+      if (identity.gender) identityGender = identity.gender;
+
       if (agentName) {
-        console.log(`[AgentManager] Agent ${id}: OpenClaw agent "${agentName}" (${openclawAgentId})`);
+        console.log(`[AgentManager] Agent ${id}: OpenClaw agent "${agentName}" (${openclawAgentId})${identityGender ? ` [${identityGender}]` : ''}`);
       }
     }
   }
@@ -492,18 +586,19 @@ export function createAgent(
     isWaiting: false,
     permissionSent: false,
     hadToolsInTurn: false,
-    folderName,
+    folderName: agentName || folderName,
     source: project.source,
     isVirtual: false,
     openclawAgentId,
     agentName,
+    identityGender,
   };
 
   state.agents.set(id, agent);
   console.log(
     `[AgentManager] Agent ${id}: created for ${path.basename(jsonlFile)} (${project.source})`,
   );
-  sendMessage({ type: 'agentCreated', id, folderName, source: project.source, projectId: project.id, openclawAgentId, agentName, isActive: true });
+  sendMessage({ type: 'agentCreated', id, folderName: agentName || folderName, source: project.source, projectId: project.id, openclawAgentId, agentName, isActive: true, identityGender });
 
   // Start watching the file if it exists, otherwise poll for it
   if (fs.existsSync(jsonlFile)) {
@@ -628,7 +723,7 @@ export function sendExistingAgents(
   sendMessage: MessageSender,
 ): void {
   const agentIds: number[] = [];
-  const agentMeta: Record<number, { folderName?: string; source: string; projectId?: string; openclawAgentId?: string; agentName?: string; isActive?: boolean }> = {};
+  const agentMeta: Record<number, { folderName?: string; source: string; projectId?: string; openclawAgentId?: string; agentName?: string; isActive?: boolean; identityGender?: 'male' | 'female' | 'any' }> = {};
 
   for (const [id, agent] of state.agents) {
     agentIds.push(id);
@@ -639,6 +734,7 @@ export function sendExistingAgents(
       openclawAgentId: agent.openclawAgentId,
       agentName: agent.agentName,
       isActive: !agent.isVirtual,
+      identityGender: agent.identityGender,
     };
   }
   agentIds.sort((a, b) => a - b);

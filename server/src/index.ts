@@ -39,12 +39,13 @@ import {
   writeLayoutToFile,
 } from './configManager.js';
 import {
+  ACTIVITY_LOG_MAX_ENTRIES,
   CLAUDE_SESSIONS_BASE,
   CLIENT_ASSETS_DIR,
   OPENCLAW_SESSIONS_BASE,
   SERVER_PORT,
 } from './constants.js';
-import type { AppConfig, ClientMessage, MonitoredProject, ServerMessage } from './types.js';
+import type { ActivityRecord, AppConfig, ClientMessage, MonitoredProject, ServerMessage } from './types.js';
 import { createWSManager } from './wsManager.js';
 
 // ── State ────────────────────────────────────────────────────
@@ -52,6 +53,39 @@ import { createWSManager } from './wsManager.js';
 let config = loadConfig();
 const agentState = createAgentManagerState(config.showInactiveAgents);
 const wsManager = createWSManager();
+
+// Wrap broadcast to record tool activities in the server-side activity log
+function broadcastWithActivityLog(msg: ServerMessage): void {
+  wsManager.broadcast(msg);
+  const log = agentState.activityLog;
+  if (msg.type === 'agentToolStart') {
+    const key = `${msg.id}-${msg.toolId}`;
+    // Extract short tool name from status (e.g. "Reading foo.ts" -> "Read")
+    const toolName = msg.status.split(/[\s:]/)[0] || msg.status;
+    log.unshift({
+      id: key,
+      agentId: msg.id,
+      toolName,
+      status: msg.status,
+      timestamp: Date.now(),
+      done: false,
+      permissionWait: false,
+    });
+    if (log.length > ACTIVITY_LOG_MAX_ENTRIES) log.length = ACTIVITY_LOG_MAX_ENTRIES;
+  } else if (msg.type === 'agentToolDone') {
+    const key = `${msg.id}-${msg.toolId}`;
+    const idx = log.findIndex((e) => e.id === key);
+    if (idx !== -1) {
+      log[idx] = { ...log[idx], done: true, timestamp: Date.now() };
+    }
+  } else if (msg.type === 'agentToolPermission') {
+    for (let i = 0; i < log.length; i++) {
+      if (log[i].agentId === msg.id && !log[i].done && !log[i].permissionWait) {
+        log[i] = { ...log[i], permissionWait: true };
+      }
+    }
+  }
+}
 
 // ── Hono App ─────────────────────────────────────────────────
 
@@ -92,7 +126,7 @@ app.post('/api/config/projects', async (c) => {
     };
 
     config = addProject(config, project);
-    startProjectMonitoring(project, agentState, wsManager.broadcast);
+    startProjectMonitoring(project, agentState, broadcastWithActivityLog);
     wsManager.broadcast({ type: 'configUpdated', config });
 
     return c.json({ project });
@@ -343,7 +377,7 @@ function handleWsMessage(data: string): void {
           // Re-seed inactive agents for all openclaw projects
           for (const p of config.projects) {
             if (p.source === 'openclaw') {
-              seedInactiveOpenclawAgents(p, agentState, wsManager.broadcast);
+              seedInactiveOpenclawAgents(p, agentState, broadcastWithActivityLog);
             }
           }
         }
@@ -365,7 +399,7 @@ function handleWsMessage(data: string): void {
 
 function startConfiguredProjects(): void {
   for (const project of config.projects) {
-    startProjectMonitoring(project, agentState, wsManager.broadcast);
+    startProjectMonitoring(project, agentState, broadcastWithActivityLog);
   }
   console.log(`[Server] Monitoring ${config.projects.length} configured project(s)`);
 }
@@ -440,6 +474,11 @@ const server = Bun.serve({
 
       // Send existing agents
       sendExistingAgents(agentState, sendToClient);
+
+      // Send activity history
+      if (agentState.activityLog.length > 0) {
+        sendToClient({ type: 'existingActivities', activities: agentState.activityLog } as ServerMessage);
+      }
 
       // Send current config and settings
       wsManager.sendTo(ws, { type: 'configUpdated', config });

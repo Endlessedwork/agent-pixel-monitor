@@ -64,7 +64,7 @@ export function SpeechBubble({
         // Don't show bubble on despawning characters
         if (ch.matrixEffect === 'despawn') return null;
 
-        const sittingOffset = ch.state === CharacterState.TYPE ? CHARACTER_SITTING_OFFSET_PX : 0;
+        const sittingOffset = (ch.state === CharacterState.TYPE || ch.state === CharacterState.SIT) ? CHARACTER_SITTING_OFFSET_PX : 0;
         const screenX = (deviceOffsetX + ch.x * zoom) / dpr;
         const screenY = (deviceOffsetY + (ch.y + sittingOffset - BUBBLE_OFFSET_Y) * zoom) / dpr;
 

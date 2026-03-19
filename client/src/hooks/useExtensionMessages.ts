@@ -180,7 +180,7 @@ export function useExtensionMessages(
             const ch = os.characters.get(p.id);
             if (ch) {
               const key = `openclaw:${p.openclawAgentId}`;
-              const appearance = { gender: 'any' as const, palette: ch.palette, hueShift: ch.hueShift };
+              const appearance = { gender: p.gender || 'any', palette: ch.palette, hueShift: ch.hueShift };
               appearancesRef.current[key] = appearance;
               fetch(`/api/config/appearances/${key}`, {
                 method: 'PUT',
@@ -206,23 +206,26 @@ export function useExtensionMessages(
         const openclawAgentId = msg.openclawAgentId as string | undefined;
         const agentName = msg.agentName as string | undefined;
         const isActive = msg.isActive !== false; // default true
+        const identityGender = (msg as any).identityGender as 'male' | 'female' | 'any' | undefined;
 
         // Look up saved appearance
         const appearanceKey = openclawAgentId ? `openclaw:${openclawAgentId}` : undefined;
         const saved = appearanceKey ? appearancesRef.current[appearanceKey] : undefined;
+        // Use saved gender, fall back to identity gender from IDENTITY.md
+        const gender = (saved?.gender || identityGender || 'any') as 'male' | 'female' | 'any';
 
         setAgents((prev) => (prev.includes(id) ? prev : [...prev, id]));
         if (isActive) {
           setSelectedAgent(id);
         }
-        os.addAgent(id, saved?.palette, saved?.hueShift, undefined, undefined, folderName, projectId, saved?.gender as any, openclawAgentId, agentName, isActive);
+        os.addAgent(id, saved?.palette, saved?.hueShift, undefined, undefined, folderName, projectId, gender, openclawAgentId, agentName, isActive);
         saveAgentSeats(os);
 
         // Save appearance if OpenClaw and no saved appearance yet
         if (openclawAgentId && !saved?.palette) {
           const ch = os.characters.get(id);
           if (ch) {
-            const appearance = { gender: saved?.gender || 'any', palette: ch.palette, hueShift: ch.hueShift };
+            const appearance = { gender, palette: ch.palette, hueShift: ch.hueShift };
             appearancesRef.current[`openclaw:${openclawAgentId}`] = appearance;
             fetch(`/api/config/appearances/openclaw:${openclawAgentId}`, {
               method: 'PUT',
@@ -268,7 +271,7 @@ export function useExtensionMessages(
         const incoming = msg.agents as number[];
         const meta = (msg.agentMeta || {}) as Record<
           number,
-          { palette?: number; hueShift?: number; seatId?: string; folderName?: string; source?: string; projectId?: string; openclawAgentId?: string; agentName?: string; isActive?: boolean }
+          { palette?: number; hueShift?: number; seatId?: string; folderName?: string; source?: string; projectId?: string; openclawAgentId?: string; agentName?: string; isActive?: boolean; identityGender?: 'male' | 'female' | 'any' }
         >;
         // If layout is already loaded, add agents immediately; otherwise buffer
         for (const id of incoming) {
@@ -279,7 +282,8 @@ export function useExtensionMessages(
           const saved = appearanceKey ? appearancesRef.current[appearanceKey] : undefined;
           const palette = saved?.palette ?? m?.palette;
           const hueShift = saved?.hueShift ?? m?.hueShift;
-          const gender = saved?.gender as 'male' | 'female' | 'any' | undefined;
+          // Use saved gender, fall back to identity gender from IDENTITY.md
+          const gender = (saved?.gender || m?.identityGender || 'any') as 'male' | 'female' | 'any';
 
           if (layoutReadyRef.current) {
             const agentIsActive = m?.isActive !== false;
@@ -289,7 +293,7 @@ export function useExtensionMessages(
               const ch = os.characters.get(id);
               if (ch) {
                 const key = `openclaw:${m.openclawAgentId}`;
-                const appearance = { gender: gender || 'any', palette: ch.palette, hueShift: ch.hueShift };
+                const appearance = { gender, palette: ch.palette, hueShift: ch.hueShift };
                 appearancesRef.current[key] = appearance;
                 fetch(`/api/config/appearances/${key}`, {
                   method: 'PUT',
@@ -602,6 +606,26 @@ export function useExtensionMessages(
         os.setAgentTool(id, null);
         setAgentTools((prev) => { const n = { ...prev }; delete n[id]; return n; });
         setAgentStatuses((prev) => { const n = { ...prev }; delete n[id]; return n; });
+      } else if (msg.type === 'existingActivities') {
+        const activities = msg.activities as Array<{
+          id: string;
+          agentId: number;
+          toolName: string;
+          status: string;
+          timestamp: number;
+          done: boolean;
+          permissionWait: boolean;
+        }>;
+        setActivityLog((prev) => {
+          // Merge: keep existing entries, add history entries that aren't already present
+          const existingIds = new Set(prev.map((e) => e.id));
+          const newEntries = activities.filter((e) => !existingIds.has(e.id));
+          if (newEntries.length === 0) return prev;
+          const merged = [...prev, ...newEntries];
+          // Sort newest first
+          merged.sort((a, b) => b.timestamp - a.timestamp);
+          return merged.length > 200 ? merged.slice(0, 200) : merged;
+        });
       } else if (msg.type === 'furnitureAssetsLoaded') {
         try {
           const catalog = msg.catalog as FurnitureAsset[];

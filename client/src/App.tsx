@@ -170,7 +170,7 @@ function App() {
   const showMigrationNotice = layoutWasReset && !migrationNoticeDismissed;
 
   const [isDebugMode, setIsDebugMode] = useState(false);
-  const [isActivityOpen, setIsActivityOpen] = useState(false);
+  const [isActivityOpen, setIsActivityOpen] = useState(true);
   const [detailAgentId, setDetailAgentId] = useState<number | null>(null);
   const [showInactiveAgentsLocal, setShowInactiveAgentsLocal] = useState(true);
 

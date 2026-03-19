@@ -13,6 +13,9 @@ export const PERMISSION_TIMER_DELAY_MS = 7000;
 export const TEXT_IDLE_DELAY_MS = 5000;
 export const LAYOUT_FILE_POLL_INTERVAL_MS = 2000;
 
+// ── Activity Log ────────────────────────────────────────────
+export const ACTIVITY_LOG_MAX_ENTRIES = 200;
+
 // ── Display Truncation ──────────────────────────────────────
 export const BASH_COMMAND_DISPLAY_MAX_LENGTH = 30;
 export const TASK_DESCRIPTION_DISPLAY_MAX_LENGTH = 40;
@@ -40,7 +43,7 @@ export const CONFIG_FILE = path.join(os.homedir(), '.pixel-agents-monitor', 'con
 
 // ── Session Directories ─────────────────────────────────────
 export const CLAUDE_SESSIONS_BASE = path.join(os.homedir(), '.claude', 'projects');
-export const OPENCLAW_SESSIONS_BASE = path.join(os.homedir(), '.openclaw', 'sessions');
+export const OPENCLAW_SESSIONS_BASE = path.join(os.homedir(), '.openclaw');
 
 // ── Assets Root (relative to project root) ──────────────────
 export const CLIENT_ASSETS_DIR = path.join(
