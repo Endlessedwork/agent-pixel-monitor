@@ -34,8 +34,8 @@ import { CharacterState, Direction, MATRIX_EFFECT_DURATION, TILE_SIZE } from '..
 import { createCharacter, updateCharacter } from './characters.js';
 import { matrixEffectSeeds } from './matrixEffect.js';
 
-const MALE_PALETTES = [0, 4];
-const FEMALE_PALETTES = [1, 2, 3, 5];
+export const MALE_PALETTES = [0, 4];
+export const FEMALE_PALETTES = [1, 2, 3, 5];
 
 export class OfficeState {
   layout: OfficeLayout;
