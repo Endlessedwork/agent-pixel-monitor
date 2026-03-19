@@ -39,6 +39,9 @@ interface OfficeCanvasProps {
   zoom: number;
   onZoomChange: (zoom: number) => void;
   panRef: React.MutableRefObject<{ x: number; y: number }>;
+  isMobile?: boolean;
+  isSheetOpen?: boolean;
+  onAgentTap?: (agentId: number) => void;
 }
 
 export function OfficeCanvas({
@@ -56,6 +59,9 @@ export function OfficeCanvas({
   zoom,
   onZoomChange,
   panRef,
+  isMobile,
+  isSheetOpen,
+  onAgentTap,
 }: OfficeCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -70,6 +76,8 @@ export function OfficeCanvas({
   const isEraseDraggingRef = useRef(false);
   // Zoom scroll accumulator for trackpad pinch sensitivity
   const zoomAccumulatorRef = useRef(0);
+  const touchStartRef = useRef<{ x: number; y: number; time: number } | null>(null);
+  const isTouchPanningRef = useRef(false);
 
   // Clamp pan so the map edge can't go past a margin inside the viewport
   const clampPan = useCallback(
@@ -791,6 +799,76 @@ export function OfficeCanvas({
     if (e.button === 1) e.preventDefault();
   }, []);
 
+  // ── Touch Events (Mobile) ──
+
+  const handleTouchStart = useCallback((e: React.TouchEvent<HTMLCanvasElement>) => {
+    if (isSheetOpen || !isMobile) return;
+    if (e.touches.length !== 1) return;
+
+    const touch = e.touches[0];
+    touchStartRef.current = { x: touch.clientX, y: touch.clientY, time: Date.now() };
+    isTouchPanningRef.current = false;
+  }, [isSheetOpen, isMobile]);
+
+  const handleTouchMove = useCallback((e: React.TouchEvent<HTMLCanvasElement>) => {
+    if (isSheetOpen || !isMobile) return;
+    if (!touchStartRef.current || e.touches.length !== 1) return;
+
+    const touch = e.touches[0];
+    const dx = touch.clientX - touchStartRef.current.x;
+    const dy = touch.clientY - touchStartRef.current.y;
+
+    if (!isTouchPanningRef.current && Math.abs(dx) + Math.abs(dy) > 5) {
+      isTouchPanningRef.current = true;
+    }
+
+    if (isTouchPanningRef.current) {
+      const dpr = window.devicePixelRatio || 1;
+      panRef.current.x += dx * dpr;
+      panRef.current.y += dy * dpr;
+      touchStartRef.current = { ...touchStartRef.current, x: touch.clientX, y: touch.clientY };
+    }
+  }, [isSheetOpen, isMobile, panRef]);
+
+  const handleTouchEnd = useCallback((e: React.TouchEvent<HTMLCanvasElement>) => {
+    if (isSheetOpen || !isMobile) return;
+    if (!touchStartRef.current) return;
+    if (e.touches.length !== 0 || e.changedTouches.length !== 1) return;
+
+    const touch = e.changedTouches[0];
+    const dx = Math.abs(touch.clientX - touchStartRef.current.x);
+    const dy = Math.abs(touch.clientY - touchStartRef.current.y);
+    const duration = Date.now() - touchStartRef.current.time;
+
+    // Tap detection: small movement + short duration
+    if (dx < 5 && dy < 5 && duration < 300) {
+      const canvas = canvasRef.current;
+      if (!canvas) return;
+      const rect = canvas.getBoundingClientRect();
+      const dpr = window.devicePixelRatio || 1;
+      const deviceX = (touch.clientX - rect.left) * dpr;
+      const deviceY = (touch.clientY - rect.top) * dpr;
+
+      // Hit test characters — officeState.characters is a Map, use .entries()
+      const offset = offsetRef.current;
+      const worldX = (deviceX - offset.x) / zoom;
+      const worldY = (deviceY - offset.y) / zoom;
+      for (const [id, ch] of officeState.characters.entries()) {
+        const cx = ch.x;
+        const cy = ch.y;
+        const hw = 8;  // half-width of character sprite
+        const hh = 16; // half-height
+        if (worldX >= cx - hw && worldX <= cx + hw && worldY >= cy - hh && worldY <= cy) {
+          onAgentTap?.(id);
+          break;
+        }
+      }
+    }
+
+    touchStartRef.current = null;
+    isTouchPanningRef.current = false;
+  }, [isSheetOpen, isMobile, zoom, officeState.characters, onAgentTap]);
+
   return (
     <div
       ref={containerRef}
@@ -812,6 +890,9 @@ export function OfficeCanvas({
         onMouseLeave={handleMouseLeave}
         onWheel={handleWheel}
         onContextMenu={handleContextMenu}
+        onTouchStart={handleTouchStart}
+        onTouchMove={handleTouchMove}
+        onTouchEnd={handleTouchEnd}
         style={{ display: 'block' }}
       />
     </div>
