@@ -15,6 +15,57 @@ import {
 } from './timerManager.js';
 import type { AgentState, MessageSender, MonitoredProject } from './types.js';
 
+// Extract the OpenClaw agent ID from a JSONL file path.
+// Path format: ~/.openclaw/agents/<AGENT_ID>/sessions/<uuid>.jsonl
+function extractOpenclawAgentId(jsonlFile: string): string | undefined {
+  const match = jsonlFile.match(/\/agents\/([^/]+)\/sessions\//);
+  return match ? match[1] : undefined;
+}
+
+// Read the display name for an OpenClaw agent from openclaw.json.
+function readOpenclawAgentName(openclawDir: string, agentId: string): string | undefined {
+  try {
+    const configPath = path.join(openclawDir, 'openclaw.json');
+    if (!fs.existsSync(configPath)) return undefined;
+    const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+    const agents = config?.agents?.list;
+    if (!Array.isArray(agents)) return undefined;
+    const agent = agents.find((a: { id?: string }) => a.id === agentId);
+    return agent?.name || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+// Find all .jsonl files in a session directory.
+// For OpenClaw, sessions live under agents/<name>/sessions/, so we scan recursively.
+// For Claude Code, sessions are flat in the directory.
+function findJsonlFiles(sessionDir: string, source: string): string[] {
+  if (!fs.existsSync(sessionDir)) return [];
+  if (source === 'openclaw') {
+    // Scan agents/*/sessions/*.jsonl
+    const agentsDir = path.join(sessionDir, 'agents');
+    if (!fs.existsSync(agentsDir)) return [];
+    const results: string[] = [];
+    try {
+      for (const agent of fs.readdirSync(agentsDir)) {
+        const sessDir = path.join(agentsDir, agent, 'sessions');
+        if (!fs.existsSync(sessDir)) continue;
+        for (const f of fs.readdirSync(sessDir)) {
+          if (f.endsWith('.jsonl')) results.push(path.join(sessDir, f));
+        }
+      }
+    } catch { /* ignore */ }
+    return results;
+  }
+  // Claude Code: flat directory
+  try {
+    return fs.readdirSync(sessionDir)
+      .filter((f) => f.endsWith('.jsonl'))
+      .map((f) => path.join(sessionDir, f));
+  } catch { return []; }
+}
+
 export interface AgentManagerState {
   readonly agents: Map<number, AgentState>;
   readonly fileWatchers: Map<number, fs.FSWatcher>;
@@ -59,28 +110,19 @@ export function startProjectMonitoring(
   // Seed known files and detect active sessions
   const knownFiles = new Set<string>();
   const activeFiles: string[] = [];
-  try {
-    if (fs.existsSync(sessionDir)) {
-      const files = fs
-        .readdirSync(sessionDir)
-        .filter((f) => f.endsWith('.jsonl'))
-        .map((f) => path.join(sessionDir, f));
-      for (const f of files) {
-        knownFiles.add(f);
-        // If modified within last 5 minutes, treat as active session
-        try {
-          const stat = fs.statSync(f);
-          const modifiedAgoMs = Date.now() - stat.mtimeMs;
-          if (modifiedAgoMs < 5 * 60 * 1000) {
-            activeFiles.push(f);
-          }
-        } catch {
-          /* ignore */
-        }
+  const files = findJsonlFiles(sessionDir, project.source);
+  for (const f of files) {
+    knownFiles.add(f);
+    // If modified within last 5 minutes, treat as active session
+    try {
+      const stat = fs.statSync(f);
+      const modifiedAgoMs = Date.now() - stat.mtimeMs;
+      if (modifiedAgoMs < 5 * 60 * 1000) {
+        activeFiles.push(f);
       }
+    } catch {
+      /* ignore */
     }
-  } catch {
-    /* dir may not exist yet */
   }
   state.knownJsonlFiles.set(projectId, knownFiles);
 
@@ -147,11 +189,7 @@ function scanForNewJsonlFiles(
 
   let files: string[];
   try {
-    if (!fs.existsSync(sessionDir)) return;
-    files = fs
-      .readdirSync(sessionDir)
-      .filter((f) => f.endsWith('.jsonl'))
-      .map((f) => path.join(sessionDir, f));
+    files = findJsonlFiles(sessionDir, source);
   } catch {
     return;
   }
@@ -266,6 +304,22 @@ export function createAgent(
     }
   }
 
+  // Extract OpenClaw agent identity if applicable
+  let openclawAgentId: string | undefined;
+  let agentName: string | undefined;
+  if (project.source === 'openclaw') {
+    openclawAgentId = extractOpenclawAgentId(jsonlFile);
+    if (openclawAgentId) {
+      // Derive the openclaw root dir from the jsonlFile path:
+      // <root>/agents/<id>/sessions/<file> → go up 3 levels from the sessions dir
+      const openclawDir = path.resolve(path.dirname(jsonlFile), '..', '..', '..');
+      agentName = readOpenclawAgentName(openclawDir, openclawAgentId);
+      if (agentName) {
+        console.log(`[AgentManager] Agent ${id}: OpenClaw agent "${agentName}" (${openclawAgentId})`);
+      }
+    }
+  }
+
   const agent: AgentState = {
     id,
     projectDir: project.id,
@@ -282,13 +336,15 @@ export function createAgent(
     hadToolsInTurn: false,
     folderName,
     source: project.source,
+    openclawAgentId,
+    agentName,
   };
 
   state.agents.set(id, agent);
   console.log(
     `[AgentManager] Agent ${id}: created for ${path.basename(jsonlFile)} (${project.source})`,
   );
-  sendMessage({ type: 'agentCreated', id, folderName, source: project.source, projectId: project.id });
+  sendMessage({ type: 'agentCreated', id, folderName, source: project.source, projectId: project.id, openclawAgentId, agentName });
 
   // Start watching the file if it exists, otherwise poll for it
   if (fs.existsSync(jsonlFile)) {
@@ -409,7 +465,7 @@ export function sendExistingAgents(
   sendMessage: MessageSender,
 ): void {
   const agentIds: number[] = [];
-  const agentMeta: Record<number, { folderName?: string; source: string; projectId?: string }> = {};
+  const agentMeta: Record<number, { folderName?: string; source: string; projectId?: string; openclawAgentId?: string; agentName?: string }> = {};
 
   for (const [id, agent] of state.agents) {
     agentIds.push(id);
@@ -417,6 +473,8 @@ export function sendExistingAgents(
       folderName: agent.folderName,
       source: agent.source,
       projectId: agent.projectDir,
+      openclawAgentId: agent.openclawAgentId,
+      agentName: agent.agentName,
     };
   }
   agentIds.sort((a, b) => a - b);
