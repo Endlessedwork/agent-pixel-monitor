@@ -18,6 +18,7 @@ import { serveStatic } from 'hono/bun';
 import {
   createAgentManagerState,
   disposeAll,
+  seedInactiveOpenclawAgents,
   sendExistingAgents,
   startProjectMonitoring,
   stopProjectMonitoring,
@@ -32,6 +33,7 @@ import {
   removeProject,
   saveConfig,
   updateAgentAppearance,
+  updateShowInactiveAgents,
   updateSoundEnabled,
   watchLayoutFile,
   writeLayoutToFile,
@@ -47,9 +49,9 @@ import { createWSManager } from './wsManager.js';
 
 // ── State ────────────────────────────────────────────────────
 
-const agentState = createAgentManagerState();
-const wsManager = createWSManager();
 let config = loadConfig();
+const agentState = createAgentManagerState(config.showInactiveAgents);
+const wsManager = createWSManager();
 
 // ── Hono App ─────────────────────────────────────────────────
 
@@ -324,6 +326,27 @@ function handleWsMessage(data: string): void {
       }
       case 'setSoundEnabled': {
         config = updateSoundEnabled(config, message.enabled);
+        break;
+      }
+      case 'setShowInactiveAgents': {
+        config = updateShowInactiveAgents(config, message.enabled);
+        agentState.showInactiveAgents.current = message.enabled;
+        if (!message.enabled) {
+          // Remove all virtual agents
+          for (const [id, agent] of [...agentState.agents]) {
+            if (agent.isVirtual) {
+              agentState.agents.delete(id);
+              wsManager.broadcast({ type: 'agentClosed', id });
+            }
+          }
+        } else {
+          // Re-seed inactive agents for all openclaw projects
+          for (const p of config.projects) {
+            if (p.source === 'openclaw') {
+              seedInactiveOpenclawAgents(p, agentState, wsManager.broadcast);
+            }
+          }
+        }
         break;
       }
       case 'webviewReady': {

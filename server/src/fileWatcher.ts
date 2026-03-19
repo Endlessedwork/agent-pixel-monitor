@@ -61,7 +61,7 @@ export function readNewLines(
   sendMessage: MessageSender,
 ): void {
   const agent = agents.get(agentId);
-  if (!agent) return;
+  if (!agent || agent.jsonlFile === null) return;
   try {
     const stat = fs.statSync(agent.jsonlFile);
     if (stat.size <= agent.fileOffset) return;
