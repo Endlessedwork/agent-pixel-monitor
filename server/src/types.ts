@@ -16,6 +16,16 @@ export interface AgentState {
   hadToolsInTurn: boolean;
   readonly folderName?: string;
   readonly source: 'claude-code' | 'openclaw';
+  readonly openclawAgentId?: string;
+  readonly agentName?: string;
+}
+
+// ── Agent Appearance ──────────────────────────────────────────
+
+export interface AgentAppearance {
+  readonly gender: 'male' | 'female' | 'any';
+  readonly palette?: number;
+  readonly hueShift?: number;
 }
 
 // ── Monitored Project ────────────────────────────────────────
@@ -34,17 +44,18 @@ export interface AppConfig {
   readonly projects: readonly MonitoredProject[];
   readonly layoutFile: string;
   readonly soundEnabled: boolean;
+  readonly agentAppearances?: Readonly<Record<string, AgentAppearance>>;
 }
 
 // ── WebSocket Messages (server → client) ─────────────────────
 
 export type ServerMessage =
-  | { readonly type: 'agentCreated'; readonly id: number; readonly folderName?: string; readonly source: string; readonly projectId?: string }
+  | { readonly type: 'agentCreated'; readonly id: number; readonly folderName?: string; readonly source: string; readonly projectId?: string; readonly openclawAgentId?: string; readonly agentName?: string }
   | { readonly type: 'agentClosed'; readonly id: number }
   | {
       readonly type: 'existingAgents';
       readonly agents: readonly number[];
-      readonly agentMeta: Readonly<Record<number, { readonly folderName?: string; readonly source: string; readonly projectId?: string }>>;
+      readonly agentMeta: Readonly<Record<number, { readonly folderName?: string; readonly source: string; readonly projectId?: string; readonly openclawAgentId?: string; readonly agentName?: string }>>;
     }
   | { readonly type: 'agentStatus'; readonly id: number; readonly status: 'active' | 'waiting' }
   | { readonly type: 'agentToolStart'; readonly id: number; readonly toolId: string; readonly status: string }
