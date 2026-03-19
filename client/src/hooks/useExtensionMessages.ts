@@ -106,6 +106,19 @@ export function useExtensionMessages(
   // Track whether initial layout has been loaded (ref to avoid re-render)
   const layoutReadyRef = useRef(false);
 
+  // Saved appearances for OpenClaw agents
+  const appearancesRef = useRef<Record<string, { gender?: string; palette?: number; hueShift?: number }>>({});
+
+  // Fetch appearances on mount
+  useEffect(() => {
+    fetch('/api/config/appearances')
+      .then((r) => r.json())
+      .then((data) => {
+        appearancesRef.current = data;
+      })
+      .catch(() => {});
+  }, []);
+
   // Periodically clean up expired speech bubbles
   useEffect(() => {
     const interval = setInterval(() => {
@@ -132,6 +145,9 @@ export function useExtensionMessages(
       seatId?: string;
       folderName?: string;
       projectId?: string;
+      gender?: 'male' | 'female' | 'any';
+      openclawAgentId?: string;
+      agentName?: string;
     }> = [];
 
     // Use wsClient.onMessage instead of window.addEventListener('message')
@@ -155,7 +171,21 @@ export function useExtensionMessages(
         }
         // Add buffered agents now that layout (and seats) are correct
         for (const p of pendingAgents) {
-          os.addAgent(p.id, p.palette, p.hueShift, p.seatId, true, p.folderName, p.projectId);
+          os.addAgent(p.id, p.palette, p.hueShift, p.seatId, true, p.folderName, p.projectId, p.gender, p.openclawAgentId, p.agentName);
+          // Save appearance for new OpenClaw agents
+          if (p.openclawAgentId && !p.palette) {
+            const ch = os.characters.get(p.id);
+            if (ch) {
+              const key = `openclaw:${p.openclawAgentId}`;
+              const appearance = { gender: 'any' as const, palette: ch.palette, hueShift: ch.hueShift };
+              appearancesRef.current[key] = appearance;
+              fetch(`/api/config/appearances/${key}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(appearance),
+              }).catch(() => {});
+            }
+          }
         }
         pendingAgents = [];
         layoutReadyRef.current = true;
@@ -170,10 +200,31 @@ export function useExtensionMessages(
         const id = msg.id as number;
         const folderName = msg.folderName as string | undefined;
         const projectId = msg.projectId as string | undefined;
+        const openclawAgentId = msg.openclawAgentId as string | undefined;
+        const agentName = msg.agentName as string | undefined;
+
+        // Look up saved appearance
+        const appearanceKey = openclawAgentId ? `openclaw:${openclawAgentId}` : undefined;
+        const saved = appearanceKey ? appearancesRef.current[appearanceKey] : undefined;
+
         setAgents((prev) => (prev.includes(id) ? prev : [...prev, id]));
         setSelectedAgent(id);
-        os.addAgent(id, undefined, undefined, undefined, undefined, folderName, projectId);
+        os.addAgent(id, saved?.palette, saved?.hueShift, undefined, undefined, folderName, projectId, saved?.gender as any, openclawAgentId, agentName);
         saveAgentSeats(os);
+
+        // Save appearance if OpenClaw and no saved appearance yet
+        if (openclawAgentId && !saved?.palette) {
+          const ch = os.characters.get(id);
+          if (ch) {
+            const appearance = { gender: saved?.gender || 'any', palette: ch.palette, hueShift: ch.hueShift };
+            appearancesRef.current[`openclaw:${openclawAgentId}`] = appearance;
+            fetch(`/api/config/appearances/openclaw:${openclawAgentId}`, {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(appearance),
+            }).catch(() => {});
+          }
+        }
       } else if (msg.type === 'agentClosed') {
         const id = msg.id as number;
         setAgents((prev) => prev.filter((a) => a !== id));
@@ -211,21 +262,46 @@ export function useExtensionMessages(
         const incoming = msg.agents as number[];
         const meta = (msg.agentMeta || {}) as Record<
           number,
-          { palette?: number; hueShift?: number; seatId?: string; folderName?: string; source?: string; projectId?: string }
+          { palette?: number; hueShift?: number; seatId?: string; folderName?: string; source?: string; projectId?: string; openclawAgentId?: string; agentName?: string }
         >;
         // If layout is already loaded, add agents immediately; otherwise buffer
         for (const id of incoming) {
           const m = meta[id];
+
+          // Look up saved appearance for OpenClaw agents
+          const appearanceKey = m?.openclawAgentId ? `openclaw:${m.openclawAgentId}` : undefined;
+          const saved = appearanceKey ? appearancesRef.current[appearanceKey] : undefined;
+          const palette = saved?.palette ?? m?.palette;
+          const hueShift = saved?.hueShift ?? m?.hueShift;
+          const gender = saved?.gender as 'male' | 'female' | 'any' | undefined;
+
           if (layoutReadyRef.current) {
-            os.addAgent(id, m?.palette, m?.hueShift, m?.seatId, true, m?.folderName, m?.projectId);
+            os.addAgent(id, palette, hueShift, m?.seatId, true, m?.folderName, m?.projectId, gender, m?.openclawAgentId, m?.agentName);
+            // Save appearance for new OpenClaw agents
+            if (m?.openclawAgentId && !saved?.palette) {
+              const ch = os.characters.get(id);
+              if (ch) {
+                const key = `openclaw:${m.openclawAgentId}`;
+                const appearance = { gender: gender || 'any', palette: ch.palette, hueShift: ch.hueShift };
+                appearancesRef.current[key] = appearance;
+                fetch(`/api/config/appearances/${key}`, {
+                  method: 'PUT',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify(appearance),
+                }).catch(() => {});
+              }
+            }
           } else {
             pendingAgents.push({
               id,
-              palette: m?.palette,
-              hueShift: m?.hueShift,
+              palette,
+              hueShift,
               seatId: m?.seatId,
               folderName: m?.folderName,
               projectId: m?.projectId,
+              gender,
+              openclawAgentId: m?.openclawAgentId,
+              agentName: m?.agentName,
             });
           }
         }
