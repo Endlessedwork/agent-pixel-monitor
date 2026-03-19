@@ -480,14 +480,16 @@ export function AgentDetailModal({
                   const gender = MALE_PALETTES.includes(selectedPalette) ? 'male' : 'female';
                   const agentKey = `openclaw:${character.openclawAgentId}`;
                   try {
-                    await fetch(`/api/config/appearances/${agentKey}`, {
+                    const response = await fetch(`/api/config/appearances/${agentKey}`, {
                       method: 'PUT',
                       headers: { 'Content-Type': 'application/json' },
                       body: JSON.stringify({ gender, palette: selectedPalette, hueShift: selectedHueShift }),
                     });
-                    // Update OfficeState directly
-                    character.palette = selectedPalette;
-                    character.hueShift = selectedHueShift;
+                    if (response.ok) {
+                      // Update OfficeState directly
+                      character.palette = selectedPalette;
+                      character.hueShift = selectedHueShift;
+                    }
                   } finally {
                     setSaving(false);
                   }
