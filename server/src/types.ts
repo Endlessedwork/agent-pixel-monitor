@@ -3,7 +3,7 @@
 export interface AgentState {
   readonly id: number;
   readonly projectDir: string;
-  jsonlFile: string;
+  jsonlFile: string | null;
   fileOffset: number;
   lineBuffer: string;
   readonly activeToolIds: Set<string>;
@@ -16,6 +16,7 @@ export interface AgentState {
   hadToolsInTurn: boolean;
   readonly folderName?: string;
   readonly source: 'claude-code' | 'openclaw';
+  isVirtual: boolean;
   readonly openclawAgentId?: string;
   readonly agentName?: string;
 }
@@ -44,18 +45,21 @@ export interface AppConfig {
   readonly projects: readonly MonitoredProject[];
   readonly layoutFile: string;
   readonly soundEnabled: boolean;
+  readonly showInactiveAgents: boolean;
   readonly agentAppearances?: Readonly<Record<string, AgentAppearance>>;
 }
 
 // ── WebSocket Messages (server → client) ─────────────────────
 
 export type ServerMessage =
-  | { readonly type: 'agentCreated'; readonly id: number; readonly folderName?: string; readonly source: string; readonly projectId?: string; readonly openclawAgentId?: string; readonly agentName?: string }
+  | { readonly type: 'agentCreated'; readonly id: number; readonly folderName?: string; readonly source: string; readonly projectId?: string; readonly openclawAgentId?: string; readonly agentName?: string; readonly isActive?: boolean }
   | { readonly type: 'agentClosed'; readonly id: number }
+  | { readonly type: 'agentActivated'; readonly id: number }
+  | { readonly type: 'agentDeactivated'; readonly id: number }
   | {
       readonly type: 'existingAgents';
       readonly agents: readonly number[];
-      readonly agentMeta: Readonly<Record<number, { readonly folderName?: string; readonly source: string; readonly projectId?: string; readonly openclawAgentId?: string; readonly agentName?: string }>>;
+      readonly agentMeta: Readonly<Record<number, { readonly folderName?: string; readonly source: string; readonly projectId?: string; readonly openclawAgentId?: string; readonly agentName?: string; readonly isActive?: boolean }>>;
     }
   | { readonly type: 'agentStatus'; readonly id: number; readonly status: 'active' | 'waiting' }
   | { readonly type: 'agentToolStart'; readonly id: number; readonly toolId: string; readonly status: string }
@@ -87,6 +91,7 @@ export type ClientMessage =
   | { readonly type: 'saveLayout'; readonly layout: Record<string, unknown> }
   | { readonly type: 'saveAgentSeats'; readonly seats: Record<string, unknown> }
   | { readonly type: 'setSoundEnabled'; readonly enabled: boolean }
+  | { readonly type: 'setShowInactiveAgents'; readonly enabled: boolean }
   | { readonly type: 'webviewReady' };
 
 // ── Asset Types (re-exported for server use) ─────────────────

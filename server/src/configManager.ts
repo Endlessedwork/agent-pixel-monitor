@@ -28,7 +28,11 @@ export function loadConfig(): AppConfig {
   try {
     if (fs.existsSync(CONFIG_FILE)) {
       const raw = fs.readFileSync(CONFIG_FILE, 'utf-8');
-      return JSON.parse(raw) as AppConfig;
+      const parsed = JSON.parse(raw) as Record<string, unknown>;
+      return {
+        ...parsed,
+        showInactiveAgents: (parsed.showInactiveAgents as boolean) ?? true,
+      } as AppConfig;
     }
   } catch (err) {
     console.error('[ConfigManager] Failed to read config:', err);
@@ -37,6 +41,7 @@ export function loadConfig(): AppConfig {
     projects: [],
     layoutFile: path.join(LAYOUT_FILE_DIR, LAYOUT_FILE_NAME),
     soundEnabled: true,
+    showInactiveAgents: true,
     agentAppearances: {},
   };
 }
@@ -78,6 +83,12 @@ export function updateSoundEnabled(config: AppConfig, enabled: boolean): AppConf
     ...config,
     soundEnabled: enabled,
   };
+  saveConfig(updatedConfig);
+  return updatedConfig;
+}
+
+export function updateShowInactiveAgents(config: AppConfig, enabled: boolean): AppConfig {
+  const updatedConfig: AppConfig = { ...config, showInactiveAgents: enabled };
   saveConfig(updatedConfig);
   return updatedConfig;
 }
