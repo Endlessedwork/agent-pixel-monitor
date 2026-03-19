@@ -211,4 +211,8 @@ export interface Character {
   folderName?: string;
   /** Project ID for multi-project monitoring */
   projectId?: string;
+  /** OpenClaw agent ID (if from OpenClaw) */
+  openclawAgentId?: string;
+  /** Display name for the agent */
+  agentName?: string;
 }

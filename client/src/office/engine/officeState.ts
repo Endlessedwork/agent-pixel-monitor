@@ -34,6 +34,9 @@ import { CharacterState, Direction, MATRIX_EFFECT_DURATION, TILE_SIZE } from '..
 import { createCharacter, updateCharacter } from './characters.js';
 import { matrixEffectSeeds } from './matrixEffect.js';
 
+const MALE_PALETTES = [0, 4];
+const FEMALE_PALETTES = [1, 2, 3, 5];
+
 export class OfficeState {
   layout: OfficeLayout;
   tileMap: TileTypeVal[][];
@@ -191,21 +194,22 @@ export class OfficeState {
    * First 6 agents each get a unique skin (random order). Beyond 6, skins
    * repeat in balanced rounds with a random hue shift (>=45 deg).
    */
-  private pickDiversePalette(): { palette: number; hueShift: number } {
-    // Count how many non-sub-agents use each base palette (0-5)
-    const counts = new Array(PALETTE_COUNT).fill(0) as number[];
+  private pickDiversePalette(gender: 'male' | 'female' | 'any' = 'any'): { palette: number; hueShift: number } {
+    const allowed = gender === 'male' ? MALE_PALETTES
+      : gender === 'female' ? FEMALE_PALETTES
+      : Array.from({ length: PALETTE_COUNT }, (_, i) => i);
+
+    const counts = new Map<number, number>();
+    for (const p of allowed) counts.set(p, 0);
     for (const ch of this.characters.values()) {
       if (ch.isSubagent) continue;
-      counts[ch.palette]++;
+      if (counts.has(ch.palette)) counts.set(ch.palette, counts.get(ch.palette)! + 1);
     }
-    const minCount = Math.min(...counts);
-    // Available = palettes at the minimum count (least used)
-    const available: number[] = [];
-    for (let i = 0; i < PALETTE_COUNT; i++) {
-      if (counts[i] === minCount) available.push(i);
-    }
+
+    const minCount = Math.min(...counts.values());
+    const available = allowed.filter(p => counts.get(p) === minCount);
     const palette = available[Math.floor(Math.random() * available.length)];
-    // First round (minCount === 0): no hue shift. Subsequent rounds: random >=45 deg.
+
     let hueShift = 0;
     if (minCount > 0) {
       hueShift = HUE_SHIFT_MIN_DEG + Math.floor(Math.random() * HUE_SHIFT_RANGE_DEG);
@@ -221,6 +225,9 @@ export class OfficeState {
     skipSpawnEffect?: boolean,
     folderName?: string,
     projectId?: string,
+    gender?: 'male' | 'female' | 'any',
+    openclawAgentId?: string,
+    agentName?: string,
   ): void {
     if (this.characters.has(id)) return;
 
@@ -230,7 +237,7 @@ export class OfficeState {
       palette = preferredPalette;
       hueShift = preferredHueShift ?? 0;
     } else {
-      const pick = this.pickDiversePalette();
+      const pick = this.pickDiversePalette(gender);
       palette = pick.palette;
       hueShift = pick.hueShift;
     }
@@ -271,6 +278,8 @@ export class OfficeState {
     if (projectId) {
       ch.projectId = projectId;
     }
+    ch.openclawAgentId = openclawAgentId;
+    ch.agentName = agentName;
     if (!skipSpawnEffect) {
       ch.matrixEffect = 'spawn';
       ch.matrixEffectTimer = 0;
