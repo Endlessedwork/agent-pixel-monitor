@@ -1,4 +1,5 @@
-import type { OfficeState, ToolActivity } from '../office/types.js';
+import type { ToolActivity } from '../office/types.js';
+import type { OfficeState } from '../office/engine/officeState.js';
 import type { MonitoredProjectInfo } from '../hooks/useExtensionMessages.js';
 import { formatActivity } from '../office/formatActivity.js';
 import { MobileBottomSheet } from './MobileBottomSheet.js';
