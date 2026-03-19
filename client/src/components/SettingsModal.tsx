@@ -9,6 +9,8 @@ interface SettingsModalProps {
   onClose: () => void;
   isDebugMode: boolean;
   onToggleDebugMode: () => void;
+  showInactiveAgents: boolean;
+  onToggleShowInactiveAgents: () => void;
 }
 
 const menuItemBase: React.CSSProperties = {
@@ -31,6 +33,8 @@ export function SettingsModal({
   onClose,
   isDebugMode,
   onToggleDebugMode,
+  showInactiveAgents,
+  onToggleShowInactiveAgents,
 }: SettingsModalProps) {
   const [hovered, setHovered] = useState<string | null>(null);
   const [soundLocal, setSoundLocal] = useState(isSoundEnabled);
@@ -174,6 +178,35 @@ export function SettingsModal({
             }}
           >
             {soundLocal ? 'X' : ''}
+          </span>
+        </button>
+        <button
+          onClick={onToggleShowInactiveAgents}
+          onMouseEnter={() => setHovered('inactive')}
+          onMouseLeave={() => setHovered(null)}
+          style={{
+            ...menuItemBase,
+            background: hovered === 'inactive' ? 'rgba(255, 255, 255, 0.08)' : 'transparent',
+          }}
+        >
+          <span>Show Inactive Agents</span>
+          <span
+            style={{
+              width: 14,
+              height: 14,
+              border: '2px solid rgba(255, 255, 255, 0.5)',
+              borderRadius: 0,
+              background: showInactiveAgents ? 'rgba(90, 140, 255, 0.8)' : 'transparent',
+              flexShrink: 0,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              fontSize: '12px',
+              lineHeight: 1,
+              color: '#fff',
+            }}
+          >
+            {showInactiveAgents ? 'X' : ''}
           </span>
         </button>
         <button

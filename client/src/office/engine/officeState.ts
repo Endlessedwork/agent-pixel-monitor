@@ -228,6 +228,7 @@ export class OfficeState {
     gender?: 'male' | 'female' | 'any',
     openclawAgentId?: string,
     agentName?: string,
+    isActive?: boolean,
   ): void {
     if (this.characters.has(id)) return;
 
@@ -286,6 +287,14 @@ export class OfficeState {
       ch.matrixEffectSeeds = matrixEffectSeeds();
     }
     this.characters.set(id, ch);
+
+    if (isActive === false) {
+      ch.isActive = false;
+      ch.state = CharacterState.IDLE;
+      ch.frame = 0;
+      ch.frameTimer = 0;
+      ch.wanderTimer = Math.random() * 3; // start wandering soon
+    }
   }
 
   removeAgent(id: number): void {

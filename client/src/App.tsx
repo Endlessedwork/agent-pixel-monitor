@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { ActivitySidebar } from './components/ActivitySidebar.js';
 import { AddProjectModal } from './components/AddProjectModal.js';
@@ -146,6 +146,7 @@ function App() {
     monitoredProjects,
     activityLog,
     agentBubbles,
+    showInactiveAgents,
   } = useExtensionMessages(getOfficeState, editor.setLastSavedLayout, isEditDirty);
 
   const [isAddProjectOpen, setIsAddProjectOpen] = useState(false);
@@ -171,9 +172,22 @@ function App() {
   const [isDebugMode, setIsDebugMode] = useState(false);
   const [isActivityOpen, setIsActivityOpen] = useState(false);
   const [detailAgentId, setDetailAgentId] = useState<number | null>(null);
+  const [showInactiveAgentsLocal, setShowInactiveAgentsLocal] = useState(true);
+
+  // Sync showInactiveAgents from server config
+  useEffect(() => {
+    setShowInactiveAgentsLocal(showInactiveAgents);
+  }, [showInactiveAgents]);
 
   const handleToggleDebugMode = useCallback(() => setIsDebugMode((prev) => !prev), []);
   const handleToggleActivity = useCallback(() => setIsActivityOpen((prev) => !prev), []);
+  const handleToggleShowInactiveAgents = useCallback(() => {
+    setShowInactiveAgentsLocal(prev => {
+      const next = !prev;
+      wsClient.send({ type: 'setShowInactiveAgents', enabled: next });
+      return next;
+    });
+  }, []);
 
   // Build agent name map from officeState characters
   const agentNames = useMemo(() => {
@@ -221,12 +235,27 @@ function App() {
     if (canvas && layout.cols > 0 && layout.rows > 0) {
       const dpr = window.devicePixelRatio || 1;
       const canvasW = canvas.clientWidth * dpr;
+      const canvasH = canvas.clientHeight * dpr;
       const fitZoom = Math.round(canvasW / (layout.cols * TILE_SIZE));
       const clampedZoom = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, fitZoom));
       editor.handleZoomChange(clampedZoom);
+      // Center vertically: offset so map is centered in viewport
+      const mapHeight = layout.rows * TILE_SIZE * clampedZoom;
+      const panY = (canvasH - mapHeight) / 2;
+      editor.panRef.current = { x: 0, y: panY };
+    } else {
+      editor.panRef.current = { x: 0, y: 0 };
     }
-    editor.panRef.current = { x: 0, y: 0 };
   }, [editor]);
+
+  // Center view on initial layout load
+  useEffect(() => {
+    if (layoutReady) {
+      // Small delay to ensure canvas is rendered
+      const timer = setTimeout(handleCenterView, 100);
+      return () => clearTimeout(timer);
+    }
+  }, [layoutReady]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleClick = useCallback((agentId: number) => {
     // If clicked agent is a sub-agent, focus the parent's terminal instead
@@ -338,6 +367,8 @@ function App() {
         onToggleDebugMode={handleToggleDebugMode}
         isActivityOpen={isActivityOpen}
         onToggleActivity={handleToggleActivity}
+        showInactiveAgents={showInactiveAgentsLocal}
+        onToggleShowInactiveAgents={handleToggleShowInactiveAgents}
       />
 
       <AddProjectModal

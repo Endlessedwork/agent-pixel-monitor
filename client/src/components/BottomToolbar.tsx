@@ -10,6 +10,8 @@ interface BottomToolbarProps {
   onToggleDebugMode: () => void;
   isActivityOpen: boolean;
   onToggleActivity: () => void;
+  showInactiveAgents: boolean;
+  onToggleShowInactiveAgents: () => void;
 }
 
 const panelStyle: React.CSSProperties = {
@@ -51,6 +53,8 @@ export function BottomToolbar({
   onToggleDebugMode,
   isActivityOpen,
   onToggleActivity,
+  showInactiveAgents,
+  onToggleShowInactiveAgents,
 }: BottomToolbarProps) {
   const [hovered, setHovered] = useState<string | null>(null);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
@@ -129,6 +133,8 @@ export function BottomToolbar({
           onClose={() => setIsSettingsOpen(false)}
           isDebugMode={isDebugMode}
           onToggleDebugMode={onToggleDebugMode}
+          showInactiveAgents={showInactiveAgents}
+          onToggleShowInactiveAgents={onToggleShowInactiveAgents}
         />
       </div>
     </div>

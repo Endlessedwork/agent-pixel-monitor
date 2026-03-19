@@ -69,6 +69,7 @@ export interface ExtensionMessageState {
   monitoredProjects: MonitoredProjectInfo[];
   activityLog: ActivityEntry[];
   agentBubbles: Readonly<Record<number, AgentBubble>>;
+  showInactiveAgents: boolean;
 }
 
 function saveAgentSeats(os: OfficeState): void {
@@ -102,6 +103,7 @@ export function useExtensionMessages(
   const [monitoredProjects, setMonitoredProjects] = useState<MonitoredProjectInfo[]>([]);
   const [activityLog, setActivityLog] = useState<ActivityEntry[]>([]);
   const [agentBubbles, setAgentBubbles] = useState<Record<number, AgentBubble>>({});
+  const [showInactiveAgents, setShowInactiveAgents] = useState(true);
 
   // Track whether initial layout has been loaded (ref to avoid re-render)
   const layoutReadyRef = useRef(false);
@@ -148,6 +150,7 @@ export function useExtensionMessages(
       gender?: 'male' | 'female' | 'any';
       openclawAgentId?: string;
       agentName?: string;
+      isActive?: boolean;
     }> = [];
 
     // Use wsClient.onMessage instead of window.addEventListener('message')
@@ -171,7 +174,7 @@ export function useExtensionMessages(
         }
         // Add buffered agents now that layout (and seats) are correct
         for (const p of pendingAgents) {
-          os.addAgent(p.id, p.palette, p.hueShift, p.seatId, true, p.folderName, p.projectId, p.gender, p.openclawAgentId, p.agentName);
+          os.addAgent(p.id, p.palette, p.hueShift, p.seatId, true, p.folderName, p.projectId, p.gender, p.openclawAgentId, p.agentName, p.isActive);
           // Save appearance for new OpenClaw agents
           if (p.openclawAgentId && !p.palette) {
             const ch = os.characters.get(p.id);
@@ -202,14 +205,17 @@ export function useExtensionMessages(
         const projectId = msg.projectId as string | undefined;
         const openclawAgentId = msg.openclawAgentId as string | undefined;
         const agentName = msg.agentName as string | undefined;
+        const isActive = msg.isActive !== false; // default true
 
         // Look up saved appearance
         const appearanceKey = openclawAgentId ? `openclaw:${openclawAgentId}` : undefined;
         const saved = appearanceKey ? appearancesRef.current[appearanceKey] : undefined;
 
         setAgents((prev) => (prev.includes(id) ? prev : [...prev, id]));
-        setSelectedAgent(id);
-        os.addAgent(id, saved?.palette, saved?.hueShift, undefined, undefined, folderName, projectId, saved?.gender as any, openclawAgentId, agentName);
+        if (isActive) {
+          setSelectedAgent(id);
+        }
+        os.addAgent(id, saved?.palette, saved?.hueShift, undefined, undefined, folderName, projectId, saved?.gender as any, openclawAgentId, agentName, isActive);
         saveAgentSeats(os);
 
         // Save appearance if OpenClaw and no saved appearance yet
@@ -262,7 +268,7 @@ export function useExtensionMessages(
         const incoming = msg.agents as number[];
         const meta = (msg.agentMeta || {}) as Record<
           number,
-          { palette?: number; hueShift?: number; seatId?: string; folderName?: string; source?: string; projectId?: string; openclawAgentId?: string; agentName?: string }
+          { palette?: number; hueShift?: number; seatId?: string; folderName?: string; source?: string; projectId?: string; openclawAgentId?: string; agentName?: string; isActive?: boolean }
         >;
         // If layout is already loaded, add agents immediately; otherwise buffer
         for (const id of incoming) {
@@ -276,7 +282,8 @@ export function useExtensionMessages(
           const gender = saved?.gender as 'male' | 'female' | 'any' | undefined;
 
           if (layoutReadyRef.current) {
-            os.addAgent(id, palette, hueShift, m?.seatId, true, m?.folderName, m?.projectId, gender, m?.openclawAgentId, m?.agentName);
+            const agentIsActive = m?.isActive !== false;
+            os.addAgent(id, palette, hueShift, m?.seatId, true, m?.folderName, m?.projectId, gender, m?.openclawAgentId, m?.agentName, agentIsActive);
             // Save appearance for new OpenClaw agents
             if (m?.openclawAgentId && !saved?.palette) {
               const ch = os.characters.get(id);
@@ -302,6 +309,7 @@ export function useExtensionMessages(
               gender,
               openclawAgentId: m?.openclawAgentId,
               agentName: m?.agentName,
+              isActive: m?.isActive,
             });
           }
         }
@@ -574,11 +582,26 @@ export function useExtensionMessages(
       } else if (msg.type === 'settingsLoaded') {
         const soundOn = msg.soundEnabled as boolean;
         setSoundEnabled(soundOn);
+        if (typeof msg.showInactiveAgents === 'boolean') {
+          setShowInactiveAgents(msg.showInactiveAgents);
+        }
       } else if (msg.type === 'configUpdated') {
-        const cfg = msg.config as { projects: MonitoredProjectInfo[] };
+        const cfg = msg.config as { projects: MonitoredProjectInfo[]; showInactiveAgents?: boolean };
         if (cfg?.projects) {
           setMonitoredProjects(cfg.projects);
         }
+        if (typeof cfg?.showInactiveAgents === 'boolean') {
+          setShowInactiveAgents(cfg.showInactiveAgents);
+        }
+      } else if (msg.type === 'agentActivated') {
+        const id = msg.id as number;
+        os.setAgentActive(id, true);
+      } else if (msg.type === 'agentDeactivated') {
+        const id = msg.id as number;
+        os.setAgentActive(id, false);
+        os.setAgentTool(id, null);
+        setAgentTools((prev) => { const n = { ...prev }; delete n[id]; return n; });
+        setAgentStatuses((prev) => { const n = { ...prev }; delete n[id]; return n; });
       } else if (msg.type === 'furnitureAssetsLoaded') {
         try {
           const catalog = msg.catalog as FurnitureAsset[];
@@ -614,5 +637,6 @@ export function useExtensionMessages(
     monitoredProjects,
     activityLog,
     agentBubbles,
+    showInactiveAgents,
   };
 }
