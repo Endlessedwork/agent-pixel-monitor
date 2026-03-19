@@ -299,6 +299,7 @@ export function AgentDetailModal({
   const [selectedPalette, setSelectedPalette] = useState<number>(character?.palette ?? 0);
   const [selectedHueShift, setSelectedHueShift] = useState<number>(character?.hueShift ?? 0);
   const [saving, setSaving] = useState(false);
+  const [editingCharacter, setEditingCharacter] = useState(false);
 
   const hasChanges = character != null && (
     selectedPalette !== character.palette || selectedHueShift !== character.hueShift
@@ -332,7 +333,7 @@ export function AgentDetailModal({
             {character && (
               <CharacterPreview
                 character={
-                  character.openclawAgentId
+                  character.openclawAgentId && editingCharacter
                     ? { ...character, palette: selectedPalette, hueShift: selectedHueShift }
                     : character
                 }
@@ -406,8 +407,28 @@ export function AgentDetailModal({
         {/* Character Selection */}
         {character?.openclawAgentId && (
           <div style={{ borderTop: '1px solid rgba(255,255,255,0.06)', padding: '8px 0' }}>
-            <div style={sectionHeaderStyle}>Character</div>
+            <div style={{ ...sectionHeaderStyle, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <span>Character</span>
+              {!editingCharacter && (
+                <button
+                  onClick={() => setEditingCharacter(true)}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    color: 'var(--pixel-accent)',
+                    fontSize: '11px',
+                    cursor: 'pointer',
+                    padding: '0 0 0 8px',
+                    textTransform: 'none',
+                    letterSpacing: 'normal',
+                  }}
+                >
+                  Edit
+                </button>
+              )}
+            </div>
 
+            {!editingCharacter ? null : (<>
             {/* Male palettes */}
             <div style={{ padding: '4px 16px 2px', fontSize: '11px', color: 'var(--pixel-text-dim)' }}>
               Male
@@ -472,7 +493,17 @@ export function AgentDetailModal({
             </div>
 
             {/* Save button */}
-            <div style={{ padding: '4px 16px 8px', display: 'flex', justifyContent: 'flex-end' }}>
+            <div style={{ padding: '4px 16px 8px', display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+              <button
+                onClick={() => {
+                  setEditingCharacter(false);
+                  setSelectedPalette(character?.palette ?? 0);
+                  setSelectedHueShift(character?.hueShift ?? 0);
+                }}
+                style={btnStyle}
+              >
+                Cancel
+              </button>
               <button
                 disabled={!hasChanges || saving}
                 onClick={async () => {
@@ -490,6 +521,7 @@ export function AgentDetailModal({
                       // Update OfficeState directly
                       character.palette = selectedPalette;
                       character.hueShift = selectedHueShift;
+                      setEditingCharacter(false);
                     }
                   } finally {
                     setSaving(false);
@@ -504,6 +536,7 @@ export function AgentDetailModal({
                 {saving ? 'Saving...' : 'Save'}
               </button>
             </div>
+            </>)}
           </div>
         )}
 
