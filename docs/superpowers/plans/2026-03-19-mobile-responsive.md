@@ -284,6 +284,7 @@ Extract the per-entry rendering logic from `ActivitySidebar.tsx`. This component
 ```typescript
 // client/src/components/ActivityEntryList.tsx
 import type { ActivityEntry } from '../office/types.js';
+import { formatActivity } from '../office/formatActivity.js';
 import { useState, useEffect } from 'react';
 
 // ── Formatting ──
@@ -317,25 +318,10 @@ export function StatusDot({ entry }: { entry: ActivityEntry }) {
   const pulse = !entry.done;
   return (
     <span
-      className={pulse ? 'status-dot-pulse' : undefined}
+      className={pulse ? 'pixel-agents-pulse' : undefined}
       style={{ ...dotBase, background: color }}
     />
   );
-}
-
-// ── Tool Icon ──
-
-const TOOL_ICONS: Record<string, string> = {
-  Read: '📖', Edit: '✏️', Write: '📝', Bash: '⚡', Grep: '🔍',
-  Glob: '📂', Agent: '🤖', WebFetch: '🌐', WebSearch: '🔎',
-  default: '🔧',
-};
-
-function toolIcon(label: string): string {
-  for (const [key, icon] of Object.entries(TOOL_ICONS)) {
-    if (label.startsWith(key)) return icon;
-  }
-  return TOOL_ICONS.default;
 }
 
 // ── Entry Row Styles ──
@@ -379,6 +365,7 @@ export function ActivityEntryList({ entries, maxHeight }: ActivityEntryListProps
   return (
     <div style={{ maxHeight, overflowY: maxHeight ? 'auto' : undefined }}>
       {entries.map((entry, i) => {
+        const { icon, label } = formatActivity(entry.status);
         const style = entry.permissionWait
           ? permissionRowStyle
           : entry.done
@@ -387,7 +374,7 @@ export function ActivityEntryList({ entries, maxHeight }: ActivityEntryListProps
         return (
           <div key={`${entry.agentId}-${entry.timestamp}-${i}`} style={style}>
             <StatusDot entry={entry} />
-            <span style={{ flexShrink: 0 }}>{toolIcon(entry.label)}</span>
+            <span style={{ flexShrink: 0 }}>{icon}</span>
             <span style={{
               flex: 1,
               overflow: 'hidden',
@@ -395,7 +382,7 @@ export function ActivityEntryList({ entries, maxHeight }: ActivityEntryListProps
               whiteSpace: 'nowrap',
               color: 'var(--pixel-text, rgba(255,255,255,0.8))',
             }}>
-              {entry.label}
+              {label}
             </span>
             <span style={{
               flexShrink: 0,
@@ -411,6 +398,8 @@ export function ActivityEntryList({ entries, maxHeight }: ActivityEntryListProps
   );
 }
 ```
+
+**Important:** `ActivityEntry` has no `label` field — use `formatActivity(entry.status)` from `../office/formatActivity.js` to get `{ icon, label }`. The `pixel-agents-pulse` CSS class (not `status-dot-pulse`) is defined in `App.tsx`'s inline `<style>` block.
 
 - [ ] **Step 2: Refactor ActivitySidebar to use ActivityEntryList**
 
@@ -520,8 +509,9 @@ Props mirror `AgentDetailModal` (lines 10-19). Renders a simplified view in a bo
 
 ```typescript
 // client/src/components/MobileAgentDetail.tsx
-import type { OfficeState } from '../office/types.js';
-import type { ToolActivity, MonitoredProjectInfo } from '../office/types.js';
+import type { OfficeState, ToolActivity } from '../office/types.js';
+import type { MonitoredProjectInfo } from '../hooks/useExtensionMessages.js';
+import { formatActivity } from '../office/formatActivity.js';
 import { MobileBottomSheet } from './MobileBottomSheet.js';
 
 interface MobileAgentDetailProps {
@@ -543,17 +533,17 @@ export function MobileAgentDetail({
 }: MobileAgentDetailProps) {
   if (agentId === null) return null;
 
-  const char = officeState.characters[agentId];
-  if (!char) return null;
+  // Character is a Map — use .get()
+  const character = officeState.characters.get(agentId);
+  if (!character) return null;
 
+  const name = character.agentName || character.folderName || `Agent #${agentId}`;
   const tools = agentTools[agentId] ?? [];
   const activeTools = tools.filter(t => !t.done);
   const status = agentStatuses[agentId] ?? 'idle';
 
-  // Find project
-  const project = monitoredProjects.find(p =>
-    p.path === char.projectPath || p.name === char.projectName
-  );
+  // Find project via character.projectId (not projectPath/projectName — those don't exist)
+  const project = monitoredProjects.find(p => p.id === character.projectId);
 
   return (
     <MobileBottomSheet isOpen={true} onClose={onClose} snapPoints={[0.45]}>
@@ -575,7 +565,7 @@ export function MobileAgentDetail({
             justifyContent: 'center',
             fontSize: 22,
           }}>
-            {char.gender === 'female' ? '👩‍💻' : '🧑‍💻'}
+            🧑‍💻
           </div>
           <div>
             <div style={{
@@ -583,31 +573,29 @@ export function MobileAgentDetail({
               fontWeight: 'bold',
               fontSize: 14,
             }}>
-              {char.name || `Agent ${agentId}`}
+              {name}
             </div>
             <div style={{
               fontSize: 11,
-              color: status === 'idle'
-                ? 'var(--pixel-text-dim)'
-                : 'var(--pixel-status-active, #3794ff)',
+              color: character.isActive
+                ? 'var(--pixel-status-active, #3794ff)'
+                : 'var(--pixel-text-dim)',
             }}>
-              ● {status}
+              ● {character.isActive ? 'Active' : 'Idle'}
             </div>
           </div>
         </div>
 
         {/* Info cards */}
         {project && (
-          <InfoCard label="Project" value={project.name || project.path} />
-        )}
-        {char.projectPath && (
-          <InfoCard label="Path" value={char.projectPath} />
-        )}
-        {char.source && (
-          <InfoCard label="Source" value={char.source} />
+          <>
+            <InfoCard label="Project" value={project.name} />
+            <InfoCard label="Path" value={project.path} />
+            <InfoCard label="Source" value={project.source} />
+          </>
         )}
 
-        {/* Active tools */}
+        {/* Active tools — use formatActivity(tool.status) since ToolActivity has no label field */}
         {activeTools.length > 0 && (
           <div style={{ marginTop: 8 }}>
             <div style={{
@@ -618,18 +606,21 @@ export function MobileAgentDetail({
             }}>
               Active Tools
             </div>
-            {activeTools.map((tool, i) => (
-              <div key={i} style={{
-                padding: '4px 8px',
-                background: 'rgba(255,255,255,0.03)',
-                borderRadius: 4,
-                fontSize: 11,
-                color: 'var(--pixel-text)',
-                marginBottom: 3,
-              }}>
-                {tool.label}
-              </div>
-            ))}
+            {activeTools.map((tool, i) => {
+              const { icon, label } = formatActivity(tool.status);
+              return (
+                <div key={i} style={{
+                  padding: '4px 8px',
+                  background: 'rgba(255,255,255,0.03)',
+                  borderRadius: 4,
+                  fontSize: 11,
+                  color: 'var(--pixel-text)',
+                  marginBottom: 3,
+                }}>
+                  {icon} {label}
+                </div>
+              );
+            })}
           </div>
         )}
       </div>
@@ -699,22 +690,24 @@ const touchStartRef = useRef<{ x: number; y: number; time: number } | null>(null
 const isTouchPanningRef = useRef(false);
 ```
 
-Add touch handlers after existing mouse handlers (after `handleWheel`, around line 790):
+Add touch handlers after existing mouse handlers (after `handleWheel`, around line 790).
+
+**Important:** `OfficeCanvas` destructures all props — there is no `props` variable. Use the destructured names directly (e.g., `isSheetOpen` not `props.isSheetOpen`). Also, `officeState.characters` is a `Map<number, Character>`, not a plain object — iterate with `officeState.characters.entries()` or `for...of`, not `Object.entries()`.
 
 ```typescript
 // ── Touch Events (Mobile) ──
 
 const handleTouchStart = useCallback((e: React.TouchEvent<HTMLCanvasElement>) => {
-  if (props.isSheetOpen || !props.isMobile) return;
+  if (isSheetOpen || !isMobile) return;
   if (e.touches.length !== 1) return;
 
   const touch = e.touches[0];
   touchStartRef.current = { x: touch.clientX, y: touch.clientY, time: Date.now() };
   isTouchPanningRef.current = false;
-}, [props.isSheetOpen, props.isMobile]);
+}, [isSheetOpen, isMobile]);
 
 const handleTouchMove = useCallback((e: React.TouchEvent<HTMLCanvasElement>) => {
-  if (props.isSheetOpen || !props.isMobile) return;
+  if (isSheetOpen || !isMobile) return;
   if (!touchStartRef.current || e.touches.length !== 1) return;
 
   const touch = e.touches[0];
@@ -727,14 +720,14 @@ const handleTouchMove = useCallback((e: React.TouchEvent<HTMLCanvasElement>) => 
 
   if (isTouchPanningRef.current) {
     const dpr = window.devicePixelRatio || 1;
-    props.panRef.current.x += dx * dpr;
-    props.panRef.current.y += dy * dpr;
+    panRef.current.x += dx * dpr;
+    panRef.current.y += dy * dpr;
     touchStartRef.current = { ...touchStartRef.current, x: touch.clientX, y: touch.clientY };
   }
-}, [props.isSheetOpen, props.isMobile, props.panRef]);
+}, [isSheetOpen, isMobile, panRef]);
 
 const handleTouchEnd = useCallback((e: React.TouchEvent<HTMLCanvasElement>) => {
-  if (props.isSheetOpen || !props.isMobile) return;
+  if (isSheetOpen || !isMobile) return;
   if (!touchStartRef.current) return;
   if (e.touches.length !== 0 || e.changedTouches.length !== 1) return;
 
@@ -752,19 +745,17 @@ const handleTouchEnd = useCallback((e: React.TouchEvent<HTMLCanvasElement>) => {
     const deviceX = (touch.clientX - rect.left) * dpr;
     const deviceY = (touch.clientY - rect.top) * dpr;
 
-    // Hit test characters (same logic as handleClick)
+    // Hit test characters — officeState.characters is a Map, use .entries()
     const offset = offsetRef.current;
-    const zoom = props.zoom;
     const worldX = (deviceX - offset.x) / zoom;
     const worldY = (deviceY - offset.y) / zoom;
-
-    for (const [id, ch] of Object.entries(props.officeState.characters)) {
+    for (const [id, ch] of officeState.characters.entries()) {
       const cx = ch.x;
       const cy = ch.y;
       const hw = 8;  // half-width of character sprite
       const hh = 16; // half-height
       if (worldX >= cx - hw && worldX <= cx + hw && worldY >= cy - hh && worldY <= cy) {
-        props.onAgentTap?.(Number(id));
+        onAgentTap?.(id);
         break;
       }
     }
@@ -772,7 +763,7 @@ const handleTouchEnd = useCallback((e: React.TouchEvent<HTMLCanvasElement>) => {
 
   touchStartRef.current = null;
   isTouchPanningRef.current = false;
-}, [props.isSheetOpen, props.isMobile, props.zoom, props.officeState.characters, props.onAgentTap]);
+}, [isSheetOpen, isMobile, zoom, officeState.characters, onAgentTap]);
 ```
 
 - [ ] **Step 3: Attach handlers to canvas element**
@@ -818,9 +809,11 @@ interface ZoomControlsProps {
 
 - [ ] **Step 2: Make button size responsive**
 
+**Important:** `ZoomControls` destructures its props — use `isMobile` directly, not `props.isMobile`.
+
 Find the `btnBase` style (around line 18-19) and update:
 ```typescript
-const size = props.isMobile ? 44 : 40;
+const size = isMobile ? 44 : 40;
 const btnBase: React.CSSProperties = {
   width: size,
   height: size,
@@ -830,7 +823,7 @@ const btnBase: React.CSSProperties = {
 
 Also add safe-area padding to the container if on mobile:
 ```typescript
-paddingLeft: props.isMobile ? 'max(8px, env(safe-area-inset-left))' : undefined,
+paddingLeft: isMobile ? 'max(8px, env(safe-area-inset-left))' : undefined,
 ```
 
 - [ ] **Step 3: Verify it compiles**
@@ -886,7 +879,7 @@ const handleMobileAgentTap = useCallback((agentId: number) => {
 
 - [ ] **Step 3: Cap handleCenterView fitZoom on mobile**
 
-In `handleCenterView` (around line 228-249), after calculating `fitZoom`, add:
+In `handleCenterView` (around line 228-249), change `const fitZoom = ...` to `let fitZoom = ...`, then add after it:
 ```typescript
 if (isMobile) fitZoom = Math.min(fitZoom, 4);
 ```
@@ -914,9 +907,9 @@ Wrap or add `className="desktop-only"` to these components' parent containers:
 - `BottomToolbar` (around line 460)
 - `EditorToolbar` and `EditActionBar` (edit mode components)
 
-For components rendered conditionally already, also add `!isMobile` guard:
+For components rendered conditionally already, add `!isMobile` guard while **preserving all existing conditions** (e.g., `!isDebugMode && !editor.isEditMode`):
 ```typescript
-{!isMobile && detailAgentId !== null && (
+{!isMobile && detailAgentId !== null && /* keep existing conditions */ (
   <AgentDetailModal ... />
 )}
 ```
@@ -955,7 +948,7 @@ After the desktop components section, add:
       activities={activityLog}
       isOpen={mobileActivityOpen}
       onClose={() => setMobileActivityOpen(false)}
-      agentCount={Object.keys(officeState.characters).length}
+      agentCount={officeState.characters.size}
     />
 
     <MobileAgentDetail
