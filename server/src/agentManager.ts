@@ -6,7 +6,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 
-import { JSONL_POLL_INTERVAL_MS, PROJECT_SCAN_INTERVAL_MS } from './constants.js';
+import { JSONL_POLL_INTERVAL_MS, PROJECT_SCAN_INTERVAL_MS, SESSION_IDLE_REVERT_MS } from './constants.js';
 import { readNewLines, startFileWatching, stopFileWatching } from './fileWatcher.js';
 import {
   cancelPermissionTimer,
@@ -151,9 +151,15 @@ function upgradeVirtualAgent(
   const agent = state.agents.get(existingId);
   if (!agent) return;
   agent.jsonlFile = jsonlFile;
-  agent.fileOffset = 0;
   agent.lineBuffer = '';
   agent.isVirtual = false;
+  // Skip existing content so we only see new tool calls from this point
+  try {
+    const stat = fs.statSync(jsonlFile);
+    agent.fileOffset = stat.size;
+  } catch {
+    agent.fileOffset = 0;
+  }
   console.log(`[AgentManager] Agent ${existingId}: activated (${path.basename(jsonlFile)})`);
   sendMessage({ type: 'agentActivated', id: existingId });
 
@@ -299,17 +305,40 @@ export function startProjectMonitoring(
   const knownFiles = new Set<string>();
   const activeFiles: string[] = [];
   const files = findJsonlFiles(sessionDir, project.source);
-  for (const f of files) {
-    knownFiles.add(f);
-    // If modified within last 5 minutes, treat as active session
-    try {
-      const stat = fs.statSync(f);
-      const modifiedAgoMs = Date.now() - stat.mtimeMs;
+
+  if (project.source === 'openclaw') {
+    // For OpenClaw: find the most recent JSONL per agent and check if it's active
+    const latestPerAgent = new Map<string, { file: string; mtime: number }>();
+    for (const f of files) {
+      knownFiles.add(f);
+      const agentId = extractOpenclawAgentId(f);
+      if (!agentId) continue;
+      try {
+        const stat = fs.statSync(f);
+        const prev = latestPerAgent.get(agentId);
+        if (!prev || stat.mtimeMs > prev.mtime) {
+          latestPerAgent.set(agentId, { file: f, mtime: stat.mtimeMs });
+        }
+      } catch { /* ignore */ }
+    }
+    // Treat the latest session per agent as active if modified within 5 minutes
+    for (const [, info] of latestPerAgent) {
+      const modifiedAgoMs = Date.now() - info.mtime;
       if (modifiedAgoMs < 5 * 60 * 1000) {
-        activeFiles.push(f);
+        activeFiles.push(info.file);
       }
-    } catch {
-      /* ignore */
+    }
+  } else {
+    // Claude Code: flat directory, any recent file is active
+    for (const f of files) {
+      knownFiles.add(f);
+      try {
+        const stat = fs.statSync(f);
+        const modifiedAgoMs = Date.now() - stat.mtimeMs;
+        if (modifiedAgoMs < 5 * 60 * 1000) {
+          activeFiles.push(f);
+        }
+      } catch { /* ignore */ }
     }
   }
   state.knownJsonlFiles.set(projectId, knownFiles);
@@ -391,8 +420,6 @@ function scanForNewJsonlFiles(
 
   for (const file of files) {
     if (!knownFiles.has(file)) {
-      knownFiles.add(file);
-
       // Check if this file is recent (modified within the last 60 seconds)
       try {
         const stat = fs.statSync(file);
@@ -404,6 +431,7 @@ function scanForNewJsonlFiles(
       } catch {
         continue;
       }
+      knownFiles.add(file);
 
       // Check if any existing agent is already tracking this file
       let alreadyTracked = false;
@@ -485,9 +513,22 @@ function checkForClosedSessions(
 
   for (const [id, agent] of state.agents) {
     if (agent.isVirtual) continue;
-    if (agent.projectDir === projectId && agent.jsonlFile !== null && !currentFileSet.has(agent.jsonlFile)) {
+    if (agent.projectDir !== projectId) continue;
+    if (agent.jsonlFile === null) continue;
+
+    if (!currentFileSet.has(agent.jsonlFile)) {
       // JSONL file was deleted -> session ended
       agentsToClose.push(id);
+    } else {
+      // Check if file hasn't been modified for a while → session likely ended
+      try {
+        const stat = fs.statSync(agent.jsonlFile);
+        if (Date.now() - stat.mtimeMs > SESSION_IDLE_REVERT_MS) {
+          agentsToClose.push(id);
+        }
+      } catch {
+        agentsToClose.push(id);
+      }
     }
   }
 
@@ -497,9 +538,22 @@ function checkForClosedSessions(
 
     if (agent.source === 'openclaw' && state.showInactiveAgents.current) {
       // Revert to virtual instead of removing
-      console.log(`[AgentManager] JSONL file removed, reverting agent ${id} to virtual`);
-      if (agent.jsonlFile !== null) {
-        stopFileWatching(id, agent.jsonlFile, state.fileWatchers, state.pollingTimers);
+      console.log(`[AgentManager] Reverting agent ${id} to virtual (${agent.openclawAgentId})`);
+      const closedFile = agent.jsonlFile;
+      if (closedFile !== null) {
+        stopFileWatching(id, closedFile, state.fileWatchers, state.pollingTimers);
+      }
+      // Remove ALL session files for this agent from knownJsonlFiles so the
+      // scanner can re-detect whichever file becomes active next.
+      // Without this, old files stay in knownFiles and are never re-checked.
+      const knownFiles = state.knownJsonlFiles.get(projectId);
+      if (knownFiles && agent.openclawAgentId) {
+        const agentPrefix = `/agents/${agent.openclawAgentId}/sessions/`;
+        for (const f of [...knownFiles]) {
+          if (f.includes(agentPrefix)) knownFiles.delete(f);
+        }
+      } else if (knownFiles && closedFile) {
+        knownFiles.delete(closedFile);
       }
       clearAgentActivity(agent, id, state.permissionTimers, sendMessage);
       cancelWaitingTimer(id, state.waitingTimers);
@@ -512,6 +566,11 @@ function checkForClosedSessions(
     } else {
       // Normal close
       console.log(`[AgentManager] JSONL file removed, closing agent ${id}`);
+      // Remove from knownJsonlFiles so future sessions can be detected
+      if (agent.jsonlFile) {
+        const knownFiles = state.knownJsonlFiles.get(projectId);
+        if (knownFiles) knownFiles.delete(agent.jsonlFile);
+      }
       removeAgent(id, state);
       sendMessage({ type: 'agentClosed', id });
     }

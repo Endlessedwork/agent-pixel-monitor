@@ -27,10 +27,13 @@ import { loadFurnitureAssets, loadDefaultLayout } from './assetLoader.js';
 import { loadCharacterSprites, loadFloorTiles, loadWallTiles } from './assetLoaderSprites.js';
 import {
   addProject,
+  clearActivityLogFile,
+  loadActivityLog,
   loadConfig,
   loadLayout,
   readLayoutFromFile,
   removeProject,
+  saveActivityLogDebounced,
   saveConfig,
   updateAgentAppearance,
   updateShowInactiveAgents,
@@ -51,13 +54,16 @@ import { createWSManager } from './wsManager.js';
 // ── State ────────────────────────────────────────────────────
 
 let config = loadConfig();
+const SERVER_VERSION = Date.now().toString(36);
 const agentState = createAgentManagerState(config.showInactiveAgents);
+agentState.activityLog.push(...loadActivityLog());
 const wsManager = createWSManager();
 
 // Wrap broadcast to record tool activities in the server-side activity log
 function broadcastWithActivityLog(msg: ServerMessage): void {
   wsManager.broadcast(msg);
   const log = agentState.activityLog;
+  let changed = false;
   if (msg.type === 'agentToolStart') {
     const key = `${msg.id}-${msg.toolId}`;
     // Extract short tool name from status (e.g. "Reading foo.ts" -> "Read")
@@ -72,18 +78,24 @@ function broadcastWithActivityLog(msg: ServerMessage): void {
       permissionWait: false,
     });
     if (log.length > ACTIVITY_LOG_MAX_ENTRIES) log.length = ACTIVITY_LOG_MAX_ENTRIES;
+    changed = true;
   } else if (msg.type === 'agentToolDone') {
     const key = `${msg.id}-${msg.toolId}`;
     const idx = log.findIndex((e) => e.id === key);
     if (idx !== -1) {
       log[idx] = { ...log[idx], done: true, timestamp: Date.now() };
+      changed = true;
     }
   } else if (msg.type === 'agentToolPermission') {
     for (let i = 0; i < log.length; i++) {
       if (log[i].agentId === msg.id && !log[i].done && !log[i].permissionWait) {
         log[i] = { ...log[i], permissionWait: true };
+        changed = true;
       }
     }
+  }
+  if (changed) {
+    saveActivityLogDebounced(log);
   }
 }
 
@@ -251,6 +263,52 @@ app.post('/api/config/sound', async (c) => {
   }
 });
 
+// ── REST API: Miniapp Settings (Phase 1) ─────────────────────
+
+app.get('/api/settings/miniapp', (c) => {
+  return c.json(config.miniappSettings ?? {
+    defaultAgent: 'main',
+    notificationsEnabled: true,
+    notificationChannel: 'telegram',
+    language: 'th',
+  });
+});
+
+app.post('/api/settings/miniapp', async (c) => {
+  try {
+    const body = await c.req.json<{
+      defaultAgent?: string;
+      notificationsEnabled?: boolean;
+      notificationChannel?: 'telegram' | 'line';
+      language?: 'th' | 'en';
+    }>();
+
+    const current = config.miniappSettings ?? {
+      defaultAgent: 'main',
+      notificationsEnabled: true,
+      notificationChannel: 'telegram' as const,
+      language: 'th' as const,
+    };
+
+    const updated = {
+      defaultAgent: body.defaultAgent ?? current.defaultAgent,
+      notificationsEnabled: body.notificationsEnabled ?? current.notificationsEnabled,
+      notificationChannel: body.notificationChannel ?? current.notificationChannel,
+      language: body.language ?? current.language,
+    };
+
+    config = { ...config, miniappSettings: updated };
+    saveConfig(config);
+    wsManager.broadcast({ type: 'configUpdated', config });
+
+    console.log(`[Server] Miniapp settings updated: defaultAgent=${updated.defaultAgent}, lang=${updated.language}`);
+    return c.json({ success: true, settings: updated });
+  } catch (err) {
+    console.error('[Server] Error updating miniapp settings:', err);
+    return c.json({ error: 'Failed to update miniapp settings' }, 500);
+  }
+});
+
 // ── REST API: Agent Appearances ──────────────────────────────
 
 app.get('/api/config/appearances', (c) => {
@@ -387,6 +445,12 @@ function handleWsMessage(data: string): void {
         // Client ready - existing agents are sent per-connection in the open handler
         break;
       }
+      case 'clearActivities': {
+        agentState.activityLog.length = 0;
+        clearActivityLogFile();
+        wsManager.broadcast({ type: 'activitiesCleared' } as ServerMessage);
+        break;
+      }
       default:
         break;
     }
@@ -475,10 +539,15 @@ const server = Bun.serve({
       // Send existing agents
       sendExistingAgents(agentState, sendToClient);
 
-      // Send activity history
-      if (agentState.activityLog.length > 0) {
-        sendToClient({ type: 'existingActivities', activities: agentState.activityLog } as ServerMessage);
+      // Send activity history (last 24 hours only)
+      const oneDayAgo = Date.now() - 24 * 60 * 60 * 1000;
+      const recentActivities = agentState.activityLog.filter(a => a.timestamp >= oneDayAgo);
+      if (recentActivities.length > 0) {
+        sendToClient({ type: 'existingActivities', activities: recentActivities } as ServerMessage);
       }
+
+      // Send server version for auto-refresh
+      sendToClient({ type: 'serverVersion', version: SERVER_VERSION } as ServerMessage);
 
       // Send current config and settings
       wsManager.sendTo(ws, { type: 'configUpdated', config });

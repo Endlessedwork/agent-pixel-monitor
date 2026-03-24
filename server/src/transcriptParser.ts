@@ -19,40 +19,89 @@ export const PERMISSION_EXEMPT_TOOLS = new Set(['Task', 'Agent', 'AskUserQuestio
 
 export function formatToolStatus(toolName: string, input: Record<string, unknown>): string {
   const base = (p: unknown) => (typeof p === 'string' ? path.basename(p) : '');
-  switch (toolName) {
-    case 'Read':
-      return `Reading ${base(input.file_path)}`;
-    case 'Edit':
-      return `Editing ${base(input.file_path)}`;
-    case 'Write':
-      return `Writing ${base(input.file_path)}`;
-    case 'Bash': {
+  const truncate = (s: string, max: number) => s.length > max ? s.slice(0, max) + '\u2026' : s;
+  const name = toolName.toLowerCase();
+  switch (name) {
+    case 'read':
+      return `Reading ${base(input.file_path) || 'file'}`;
+    case 'edit':
+      return `Editing ${base(input.file_path) || 'file'}`;
+    case 'write':
+      return `Writing ${base(input.file_path) || 'file'}`;
+    case 'bash':
+    case 'exec': {
       const cmd = (input.command as string) || '';
-      return `Running: ${cmd.length > BASH_COMMAND_DISPLAY_MAX_LENGTH ? cmd.slice(0, BASH_COMMAND_DISPLAY_MAX_LENGTH) + '\u2026' : cmd}`;
+      // Extract URL from curl commands for better readability
+      if (/^\s*curl\b/.test(cmd)) {
+        const urlMatch = cmd.match(/(?:https?:\/\/)\S+/);
+        if (urlMatch) {
+          const url = urlMatch[0].replace(/['"]+$/g, '');
+          return `curl ${truncate(url, 120)}`;
+        }
+        return 'Running curl';
+      }
+      return `Running: ${truncate(cmd, BASH_COMMAND_DISPLAY_MAX_LENGTH)}`;
     }
-    case 'Glob':
-      return 'Searching files';
-    case 'Grep':
-      return 'Searching code';
-    case 'WebFetch':
-      return 'Fetching web content';
-    case 'WebSearch':
-      return 'Searching the web';
-    case 'Task':
-    case 'Agent': {
+    case 'glob':
+      return `Searching files${input.pattern ? `: ${input.pattern}` : ''}`;
+    case 'grep':
+      return `Searching code${input.pattern ? `: ${input.pattern}` : ''}`;
+    case 'webfetch':
+    case 'web_fetch': {
+      const url = (input.url as string) || '';
+      return url ? `Fetching ${truncate(url, 120)}` : 'Fetching web content';
+    }
+    case 'websearch':
+    case 'web_search': {
+      const query = (input.query as string) || '';
+      return query ? `Searching web: ${truncate(query, 100)}` : 'Searching the web';
+    }
+    case 'browser': {
+      const bUrl = (input.url as string) || '';
+      return bUrl ? `Browsing ${truncate(bUrl, 120)}` : 'Browsing web';
+    }
+    case 'task':
+    case 'agent': {
       const desc = typeof input.description === 'string' ? input.description : '';
       return desc
-        ? `Subtask: ${desc.length > TASK_DESCRIPTION_DISPLAY_MAX_LENGTH ? desc.slice(0, TASK_DESCRIPTION_DISPLAY_MAX_LENGTH) + '\u2026' : desc}`
+        ? `Subtask: ${truncate(desc, TASK_DESCRIPTION_DISPLAY_MAX_LENGTH)}`
         : 'Running subtask';
     }
-    case 'AskUserQuestion':
+    case 'sessions_spawn':
+      return `Spawning agent${input.agentId ? `: ${input.agentId}` : input.agent ? `: ${input.agent}` : ''}`;
+    case 'sessions_list':
+      return 'Listing sessions';
+    case 'sessions_history':
+      return 'Reviewing session history';
+    case 'session_status':
+      return 'Checking session status';
+    case 'sessions_yield':
+      return 'Yielding session';
+    case 'memory_search':
+      return 'Searching memory';
+    case 'message':
+      return 'Sending message';
+    case 'cron':
+      return 'Managing cron job';
+    case 'gateway':
+      return 'Using gateway';
+    case 'process':
+      return 'Managing process';
+    case 'agents_list':
+      return 'Listing agents';
+    case 'askuserquestion':
       return 'Waiting for your answer';
-    case 'EnterPlanMode':
+    case 'enterplanmode':
       return 'Planning';
-    case 'NotebookEdit':
+    case 'notebookedit':
       return 'Editing notebook';
-    default:
+    default: {
+      // MCP browser/navigation tools: extract URL if present
+      if (name.includes('navigate') && input.url) {
+        return `Browsing ${truncate(input.url as string, 120)}`;
+      }
       return `Using ${toolName}`;
+    }
   }
 }
 

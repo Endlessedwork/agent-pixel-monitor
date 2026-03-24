@@ -109,7 +109,7 @@ export const WAITING_BUBBLE_DURATION_SEC = 2.0;
 export const DISMISS_BUBBLE_FAST_FADE_SEC = 0.3;
 export const INACTIVE_SEAT_TIMER_MIN_SEC = 3.0;
 export const INACTIVE_SEAT_TIMER_RANGE_SEC = 2.0;
-export const PALETTE_COUNT = 6;
+export const PALETTE_COUNT = 14;
 export const HUE_SHIFT_MIN_DEG = 45;
 export const HUE_SHIFT_RANGE_DEG = 271;
 export const AUTO_ON_FACING_DEPTH = 3;
@@ -126,3 +126,11 @@ export const SPEECH_BUBBLE_PERSIST_MS = 10_000;
 export const ACTIVITY_TICK_HZ = 880; // A5 - soft tick
 export const ACTIVITY_TICK_DURATION_SEC = 0.06;
 export const ACTIVITY_TICK_VOLUME = 0.05;
+
+// -- Agent Spawn Sound (ascending 3-note chime) --
+export const SPAWN_NOTE_1_HZ = 523.25; // C5
+export const SPAWN_NOTE_2_HZ = 659.25; // E5
+export const SPAWN_NOTE_3_HZ = 783.99; // G5
+export const SPAWN_NOTE_OFFSET_SEC = 0.08;
+export const SPAWN_NOTE_DURATION_SEC = 0.15;
+export const SPAWN_VOLUME = 0.12;

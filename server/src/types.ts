@@ -48,6 +48,16 @@ export interface AppConfig {
   readonly soundEnabled: boolean;
   readonly showInactiveAgents: boolean;
   readonly agentAppearances?: Readonly<Record<string, AgentAppearance>>;
+  readonly miniappSettings?: MiniappSettings;
+}
+
+// ── Miniapp Settings (Phase 1) ────────────────────────────────
+
+export interface MiniappSettings {
+  readonly defaultAgent: string;
+  readonly notificationsEnabled: boolean;
+  readonly notificationChannel: 'telegram' | 'line';
+  readonly language: 'th' | 'en';
 }
 
 // ── WebSocket Messages (server → client) ─────────────────────
@@ -85,7 +95,9 @@ export type ServerMessage =
   | { readonly type: 'wallTilesLoaded'; readonly sets: unknown }
   | { readonly type: 'furnitureAssetsLoaded'; readonly catalog: unknown; readonly sprites: unknown }
   | { readonly type: 'settingsLoaded'; readonly soundEnabled: boolean }
-  | { readonly type: 'existingActivities'; readonly activities: readonly ActivityRecord[] };
+  | { readonly type: 'existingActivities'; readonly activities: readonly ActivityRecord[] }
+  | { readonly type: 'activitiesCleared' }
+  | { readonly type: 'serverVersion'; readonly version: string };
 
 // ── Activity Record (server-side activity log entry) ─────────
 
@@ -106,7 +118,8 @@ export type ClientMessage =
   | { readonly type: 'saveAgentSeats'; readonly seats: Record<string, unknown> }
   | { readonly type: 'setSoundEnabled'; readonly enabled: boolean }
   | { readonly type: 'setShowInactiveAgents'; readonly enabled: boolean }
-  | { readonly type: 'webviewReady' };
+  | { readonly type: 'webviewReady' }
+  | { readonly type: 'clearActivities' };
 
 // ── Asset Types (re-exported for server use) ─────────────────
 

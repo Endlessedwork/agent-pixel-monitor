@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 
-import { playActivityTick, playDoneSound, setSoundEnabled } from '../notificationSound.js';
+import { playActivityTick, playDoneSound, playSpawnSound, setSoundEnabled } from '../notificationSound.js';
 import type { OfficeState } from '../office/engine/officeState.js';
 import { setFloorSprites } from '../office/floorTiles.js';
 import { buildDynamicCatalog } from '../office/layout/furnitureCatalog.js';
@@ -153,10 +153,23 @@ export function useExtensionMessages(
       isActive?: boolean;
     }> = [];
 
+    let knownServerVersion: string | null = null;
+
     // Use wsClient.onMessage instead of window.addEventListener('message')
     const unsubscribe = wsClient.onMessage((raw: unknown) => {
       const msg = raw as Record<string, unknown>;
       const os = getOfficeState();
+
+      if (msg.type === 'serverVersion') {
+        const version = msg.version as string;
+        if (knownServerVersion !== null && knownServerVersion !== version) {
+          console.log('[WebSocket] Server version changed, reloading...');
+          window.location.reload();
+          return;
+        }
+        knownServerVersion = version;
+        return;
+      }
 
       if (msg.type === 'layoutLoaded') {
         // Skip external layout updates while editor has unsaved changes
@@ -217,6 +230,7 @@ export function useExtensionMessages(
         setAgents((prev) => (prev.includes(id) ? prev : [...prev, id]));
         if (isActive) {
           setSelectedAgent(id);
+          playSpawnSound();
         }
         os.addAgent(id, saved?.palette, saved?.hueShift, undefined, undefined, folderName, projectId, gender, openclawAgentId, agentName, isActive);
         saveAgentSeats(os);
@@ -600,6 +614,7 @@ export function useExtensionMessages(
       } else if (msg.type === 'agentActivated') {
         const id = msg.id as number;
         os.setAgentActive(id, true);
+        playSpawnSound();
       } else if (msg.type === 'agentDeactivated') {
         const id = msg.id as number;
         os.setAgentActive(id, false);
@@ -626,6 +641,8 @@ export function useExtensionMessages(
           merged.sort((a, b) => b.timestamp - a.timestamp);
           return merged.length > 200 ? merged.slice(0, 200) : merged;
         });
+      } else if (msg.type === 'activitiesCleared') {
+        setActivityLog([]);
       } else if (msg.type === 'furnitureAssetsLoaded') {
         try {
           const catalog = msg.catalog as FurnitureAsset[];

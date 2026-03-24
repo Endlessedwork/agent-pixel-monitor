@@ -210,6 +210,19 @@ export function SettingsModal({
           </span>
         </button>
         <button
+          onClick={() => {
+            wsClient.send({ type: 'clearActivities' });
+          }}
+          onMouseEnter={() => setHovered('clearLog')}
+          onMouseLeave={() => setHovered(null)}
+          style={{
+            ...menuItemBase,
+            background: hovered === 'clearLog' ? 'rgba(255, 255, 255, 0.08)' : 'transparent',
+          }}
+        >
+          Clear Activity Log
+        </button>
+        <button
           onClick={() => setShowAppearances(true)}
           onMouseEnter={() => setHovered('appearances')}
           onMouseLeave={() => setHovered(null)}

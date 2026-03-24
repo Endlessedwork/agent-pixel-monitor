@@ -42,9 +42,21 @@ No test framework is configured. No linter is configured.
 
 ### Agent Lifecycle (Virtual → Active → Virtual)
 
-OpenClaw agents exist as **virtual agents** (`isVirtual: true`, `jsonlFile: null`) when no active session is running. They appear as idle/wandering characters. When a new JSONL session file is detected, `upgradeVirtualAgent()` transitions them to active (typing at desk). When the session ends, `revertToVirtual()` returns them to idle state. This is controlled by `showInactiveAgents` config flag (default: true).
+OpenClaw agents exist as **virtual agents** (`isVirtual: true`, `jsonlFile: null`) when no active session is running. They appear as idle characters that wander and randomly sit on **lounge seats** (sofas, benches — non-desk chairs). When a new JSONL session file is detected, `upgradeVirtualAgent()` transitions them to active (typing at desk). When the session ends, `revertToVirtual()` returns them to idle state. This is controlled by `showInactiveAgents` config flag (default: true).
 
 Claude Code agents only appear when they have an active session — no virtual agent concept.
+
+### Agent Identity (IDENTITY.md)
+
+Server reads `~/.openclaw/workspace/IDENTITY.md` (main agent) or `~/.openclaw/workspace-<agentId>/IDENTITY.md` for other agents. Parses **Name:** and **Gender:** fields (supports Thai: ผู้หญิง = female, ผู้ชาย = male). Identity info is sent with `agentCreated` messages.
+
+### Lounge Seat System
+
+Separate from work seats (desk-adjacent). Virtual/inactive agents randomly sit on lounge seats (sofas, benches) with idle animation. Active agents only use work seats. Character state machine: TYPE ↔ IDLE ↔ WALK ↔ WORK_SIT / LOUNGE_SIT.
+
+### Activity Log
+
+Server maintains `agentState.activityLog` (max 200 entries) persisted across restarts. Sent to new clients via `existingActivities` WebSocket message. Client displays in `ActivitySidebar.tsx`.
 
 ### Agent Appearance System
 
@@ -72,18 +84,20 @@ Claude Code agents only appear when they have an active session — no virtual a
 
 - **`index.ts`**: Bun.serve with Hono routes + WebSocket upgrade handler; serves `client/dist/` in production via `serveStatic` with `rewriteRequestPath`
 - **`agentManager.ts`**: Discovers JSONL files, polls for changes, manages agent lifecycle (including virtual agents for OpenClaw), subagent spawning
-- **`transcriptParser.ts`**: Parses JSONL transcripts to extract tool calls and agent status
+- **`transcriptParser.ts`**: Parses JSONL transcripts to extract tool calls and agent status; supports both Claude Code (`tool_use`/`tool_result`) and OpenClaw (`toolCall`/`toolResult`) JSONL formats
+- **`constants.ts`**: Centralized timing/limit constants (poll intervals, activity log max, delays)
 - **`configManager.ts`**: Persists config/layout/appearances to `~/.pixel-agents-monitor/`
 - **`assetLoader.ts` / `assetLoaderSprites.ts`**: Server-side PNG parsing for sprites
 
 ### WebSocket Protocol
 
 Typed message unions in both `client/src/office/types.ts` and `server/src/types.ts`. Key messages:
-- Agent lifecycle: `agentCreated` (with `isActive` flag), `agentClosed`, `existingAgents`, `agentActivated`, `agentDeactivated`
+- Agent lifecycle: `agentCreated` (with `isActive`, `identityGender`, `openclawAgentId`, `agentName`), `agentClosed`, `existingAgents`, `agentActivated`, `agentDeactivated`
 - Tool tracking: `agentToolStart`, `agentToolDone`, `agentToolPermission`
 - Subagent tracking: `subagentToolStart`, `subagentToolDone`, `subagentClear`
+- Activity: `existingActivities` (sent on connection)
 - Layout/config: `layoutLoaded`, `configUpdated`, `saveLayout`
-- Settings: `setSoundEnabled`, `setShowInactiveAgents`
+- Settings: `setSoundEnabled`, `setShowInactiveAgents`, `settingsLoaded`
 
 ### REST API
 

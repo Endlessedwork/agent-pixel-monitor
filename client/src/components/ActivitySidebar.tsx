@@ -14,7 +14,7 @@ const sidebarStyle: React.CSSProperties = {
   top: 0,
   right: 0,
   bottom: 0,
-  width: 260,
+  width: 340,
   background: 'var(--pixel-bg)',
   borderLeft: '2px solid var(--pixel-border)',
   boxShadow: 'var(--pixel-shadow)',
@@ -67,6 +67,13 @@ export function ActivitySidebar({ activityLog, agentNames }: ActivitySidebarProp
       } else {
         groups.set(entry.agentId, [entry]);
       }
+    }
+    // Sort entries within each group: active (not done) first, then by timestamp descending
+    for (const [, entries] of groups) {
+      entries.sort((a, b) => {
+        if (a.done !== b.done) return a.done ? 1 : -1;
+        return b.timestamp - a.timestamp;
+      });
     }
     const sortedIds = [...groups.keys()].sort((a, b) => {
       const aLatest = groups.get(a)![0].timestamp;

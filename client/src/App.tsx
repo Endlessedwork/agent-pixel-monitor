@@ -5,6 +5,7 @@ import { AddProjectModal } from './components/AddProjectModal.js';
 import { AgentDetailModal } from './components/AgentDetailModal.js';
 import { BottomToolbar } from './components/BottomToolbar.js';
 import { DebugView } from './components/DebugView.js';
+import { MiniappSettings } from './components/MiniappSettings.js';
 import { MobileActivitySheet } from './components/MobileActivitySheet.js';
 import { MobileAgentDetail } from './components/MobileAgentDetail.js';
 import { ZoomControls } from './components/ZoomControls.js';
@@ -23,6 +24,7 @@ import { OfficeState } from './office/engine/officeState.js';
 import { isRotatable } from './office/layout/furnitureCatalog.js';
 import { EditTool } from './office/types.js';
 import { wsClient } from './wsClient.js';
+import { useI18n } from './i18n.js';
 
 // Game state lives outside React -- updated imperatively by message handlers
 const officeStateRef = { current: null as OfficeState | null };
@@ -180,6 +182,8 @@ function App() {
   const { isMobile } = useMobileDetect();
   const [mobileActivityOpen, setMobileActivityOpen] = useState(false);
   const [mobileAgentId, setMobileAgentId] = useState<number | null>(null);
+  const [mobileSettingsOpen, setMobileSettingsOpen] = useState(false);
+  const { t } = useI18n();
 
   const isSheetOpen = mobileActivityOpen || mobileAgentId !== null;
 
@@ -217,7 +221,7 @@ function App() {
       names[ch.id] = ch.folderName || `Agent #${ch.id}`;
     }
     return names;
-  }, [agents]); // eslint-disable-line -- re-derive when agents list changes
+  }, [agents, layoutReady]); // eslint-disable-line -- re-derive when agents list or layout changes
 
   const handleSelectAgent = useCallback((id: number) => {
     wsClient.send({ type: 'focusAgent', id });
@@ -527,9 +531,8 @@ function App() {
       {/* Mobile components */}
       {isMobile && (
         <>
-          {/* Activity sheet handle (always visible as collapsed bar) */}
+          {/* Mobile bottom nav bar — Activity + Settings */}
           <div
-            onClick={handleMobileActivityOpen}
             style={{
               position: 'fixed',
               bottom: 0,
@@ -537,17 +540,48 @@ function App() {
               right: 0,
               background: 'var(--pixel-bg, #1e1e2e)',
               borderTop: '2px solid var(--pixel-accent, #5a8cff)',
-              padding: '6px',
-              textAlign: 'center',
               zIndex: 55,
-              cursor: 'pointer',
-              paddingBottom: 'max(6px, env(safe-area-inset-bottom))',
+              paddingBottom: 'max(4px, env(safe-area-inset-bottom))',
+              display: 'flex',
+              alignItems: 'stretch',
             }}
           >
-            <div style={{ width: 36, height: 3, background: '#555', borderRadius: 2, margin: '0 auto 4px' }} />
-            <div style={{ fontSize: 10, color: 'var(--pixel-accent, #5a8cff)' }}>
-              Activity Log — {activityLog.length} entries ↑
+            {/* Activity button (flex 1) */}
+            <div
+              onClick={handleMobileActivityOpen}
+              style={{
+                flex: 1,
+                padding: '6px 0',
+                textAlign: 'center',
+                cursor: 'pointer',
+                borderRight: '1px solid rgba(255,255,255,0.08)',
+              }}
+            >
+              <div style={{ width: 36, height: 3, background: '#555', borderRadius: 2, margin: '0 auto 3px' }} />
+              <div style={{ fontSize: 10, color: 'var(--pixel-accent, #5a8cff)' }}>
+                {t('activityLog')} — {activityLog.length} {t('entries')} ↑
+              </div>
             </div>
+            {/* Settings button */}
+            <button
+              onClick={() => setMobileSettingsOpen(true)}
+              style={{
+                flexShrink: 0,
+                width: 52,
+                background: 'transparent',
+                border: 'none',
+                cursor: 'pointer',
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 2,
+                padding: '4px 0',
+              }}
+            >
+              <span style={{ fontSize: 16, color: 'var(--pixel-accent, #5a8cff)', lineHeight: 1 }}>⚙</span>
+              <span style={{ fontSize: 9, color: 'rgba(255,255,255,0.5)' }}>{t('settings')}</span>
+            </button>
           </div>
 
           <MobileActivitySheet
@@ -564,6 +598,11 @@ function App() {
             agentStatuses={agentStatuses}
             monitoredProjects={monitoredProjects}
             onClose={() => setMobileAgentId(null)}
+          />
+
+          <MiniappSettings
+            isOpen={mobileSettingsOpen}
+            onClose={() => setMobileSettingsOpen(false)}
           />
         </>
       )}
