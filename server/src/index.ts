@@ -68,9 +68,11 @@ function broadcastWithActivityLog(msg: ServerMessage): void {
     const key = `${msg.id}-${msg.toolId}`;
     // Extract short tool name from status (e.g. "Reading foo.ts" -> "Read")
     const toolName = msg.status.split(/[\s:]/)[0] || msg.status;
+    const agent = agentState.agents.get(msg.id);
     log.unshift({
       id: key,
       agentId: msg.id,
+      agentName: agent?.agentName || agent?.folderName,
       toolName,
       status: msg.status,
       timestamp: Date.now(),

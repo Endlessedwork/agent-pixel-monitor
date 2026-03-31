@@ -361,9 +361,11 @@ export function useExtensionMessages(
         setActivityLog((prev) => {
           const key = `${id}-${toolId}`;
           if (prev.some((e) => e.id === key)) return prev;
+          const char = os.characters.get(id);
           const entry: ActivityEntry = {
             id: key,
             agentId: id,
+            agentName: char?.folderName,
             toolName: toolName || status,
             status,
             timestamp: Date.now(),

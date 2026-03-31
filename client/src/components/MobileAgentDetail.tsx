@@ -107,7 +107,7 @@ export function MobileAgentDetail({
               Active Tools
             </div>
             {activeTools.map((tool, i) => {
-              const { icon, label } = formatActivity(tool.status);
+              const { icon } = formatActivity(tool.status);
               return (
                 <div
                   key={i}
@@ -120,7 +120,7 @@ export function MobileAgentDetail({
                     marginBottom: 3,
                   }}
                 >
-                  {icon} {label}
+                  {icon} {tool.status}
                 </div>
               );
             })}

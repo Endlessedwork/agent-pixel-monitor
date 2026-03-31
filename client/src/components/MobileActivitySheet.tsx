@@ -40,7 +40,7 @@ export function MobileActivitySheet({
             {activities.length} entries · {agentCount} agents
           </span>
         </div>
-        <ActivityEntryList entries={activities} />
+        <ActivityEntryList entries={activities} showAgentName />
       </div>
     </MobileBottomSheet>
   );

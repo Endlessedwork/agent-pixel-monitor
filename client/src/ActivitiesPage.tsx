@@ -100,6 +100,7 @@ export default function ActivitiesPage() {
         const entry: ActivityEntry = {
           id: key,
           agentId: id,
+          agentName: agentNamesRef.current[id],
           toolName: status,
           status,
           timestamp: Date.now(),
@@ -203,7 +204,8 @@ export default function ActivitiesPage() {
         ) : (
           grouped.sortedIds.map((agentId) => {
             const entries = grouped.groups.get(agentId)!;
-            const name = agentNamesRef.current[agentId] || `Agent #${agentId}`;
+            const nameFromEntries = entries.find((e) => e.agentName)?.agentName;
+            const name = agentNamesRef.current[agentId] || nameFromEntries || `Agent #${agentId}`;
             const active = countActive(entries);
             return (
               <div key={agentId} style={{ marginBottom: 4 }}>
@@ -225,7 +227,7 @@ export default function ActivitiesPage() {
                     </span>
                   )}
                 </div>
-                <ActivityEntryList entries={entries} />
+                <ActivityEntryList entries={entries} showAgentName />
               </div>
             );
           })

@@ -545,7 +545,7 @@ export function AgentDetailModal({
           <div style={{ borderTop: '1px solid rgba(255,255,255,0.06)', padding: '8px 0' }}>
             <div style={sectionHeaderStyle}>Current Tools</div>
             {activeTools.map((tool) => {
-              const { icon, label } = formatActivity(tool.status);
+              const { icon } = formatActivity(tool.status);
               const dotColor = tool.permissionWait
                 ? 'var(--pixel-status-permission)'
                 : 'var(--pixel-status-active)';
@@ -561,7 +561,7 @@ export function AgentDetailModal({
                       whiteSpace: 'nowrap',
                     }}
                   >
-                    {label}
+                    {tool.status}
                   </span>
                 </div>
               );
@@ -585,7 +585,7 @@ export function AgentDetailModal({
             </div>
           ) : (
             agentActivity.map((entry) => {
-              const { icon, label } = formatActivity(entry.status);
+              const { icon } = formatActivity(entry.status);
               const timeStr = formatRelativeTime(entry.timestamp, now);
               const dotColor = entry.done
                 ? 'var(--pixel-status-done)'
@@ -612,7 +612,7 @@ export function AgentDetailModal({
                       whiteSpace: 'nowrap',
                     }}
                   >
-                    {label}
+                    {entry.status}
                   </span>
                   <span
                     style={{

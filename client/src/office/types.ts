@@ -91,6 +91,7 @@ export interface ToolActivity {
 export interface ActivityEntry {
   readonly id: string;
   readonly agentId: number;
+  readonly agentName?: string;
   readonly toolName: string;
   readonly status: string;
   readonly timestamp: number;

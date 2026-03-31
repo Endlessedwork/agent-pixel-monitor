@@ -104,6 +104,7 @@ export type ServerMessage =
 export interface ActivityRecord {
   readonly id: string;
   readonly agentId: number;
+  readonly agentName?: string;
   readonly toolName: string;
   readonly status: string;
   readonly timestamp: number;

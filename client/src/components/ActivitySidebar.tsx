@@ -68,16 +68,14 @@ export function ActivitySidebar({ activityLog, agentNames }: ActivitySidebarProp
         groups.set(entry.agentId, [entry]);
       }
     }
-    // Sort entries within each group: active (not done) first, then by timestamp descending
+    // Sort entries within each group by timestamp descending (most recent first)
     for (const [, entries] of groups) {
-      entries.sort((a, b) => {
-        if (a.done !== b.done) return a.done ? 1 : -1;
-        return b.timestamp - a.timestamp;
-      });
+      entries.sort((a, b) => b.timestamp - a.timestamp);
     }
+    // Sort agent groups by their most recent entry timestamp
     const sortedIds = [...groups.keys()].sort((a, b) => {
-      const aLatest = groups.get(a)![0].timestamp;
-      const bLatest = groups.get(b)![0].timestamp;
+      const aLatest = Math.max(...groups.get(a)!.map((e) => e.timestamp));
+      const bLatest = Math.max(...groups.get(b)!.map((e) => e.timestamp));
       return bLatest - aLatest;
     });
     return { groups, sortedIds };

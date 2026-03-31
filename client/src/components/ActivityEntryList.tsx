@@ -90,9 +90,13 @@ function getRowStyle(entry: ActivityEntry): React.CSSProperties {
 interface ActivityEntryListProps {
   entries: readonly ActivityEntry[];
   maxHeight?: string;
+  /** When true, show agent name on each entry row (for flat lists without agent group headers) */
+  showAgentName?: boolean;
+  /** Fallback agent name lookup by id */
+  agentNames?: Readonly<Record<number, string>>;
 }
 
-export function ActivityEntryList({ entries, maxHeight }: ActivityEntryListProps) {
+export function ActivityEntryList({ entries, maxHeight, showAgentName, agentNames }: ActivityEntryListProps) {
   const [now, setNow] = useState(Date.now());
 
   useEffect(() => {
@@ -103,12 +107,31 @@ export function ActivityEntryList({ entries, maxHeight }: ActivityEntryListProps
   return (
     <div style={{ maxHeight, overflowY: maxHeight ? 'auto' : undefined }}>
       {entries.map((entry) => {
-        const { icon, label } = formatActivity(entry.status);
+        const { icon } = formatActivity(entry.status);
         const timeStr = formatRelativeTime(entry.timestamp, now);
+        const name = showAgentName
+          ? entry.agentName || agentNames?.[entry.agentId] || `Agent #${entry.agentId}`
+          : undefined;
         return (
           <div key={entry.id} style={getRowStyle(entry)} title={entry.status}>
             <StatusDot entry={entry} />
             <span style={{ flexShrink: 0, fontSize: '13px', lineHeight: 1 }}>{icon}</span>
+            {name && (
+              <span
+                style={{
+                  flexShrink: 0,
+                  fontSize: '11px',
+                  color: 'var(--pixel-accent, #4fc3f7)',
+                  fontWeight: 'bold',
+                  maxWidth: 80,
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                {name}
+              </span>
+            )}
             <span
               style={{
                 flex: 1,
@@ -118,7 +141,7 @@ export function ActivityEntryList({ entries, maxHeight }: ActivityEntryListProps
                 lineHeight: 1.3,
               }}
             >
-              {label}
+              {entry.status}
             </span>
             <span
               style={{
