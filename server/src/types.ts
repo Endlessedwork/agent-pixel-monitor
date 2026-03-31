@@ -3,7 +3,7 @@
 export interface AgentState {
   readonly id: number;
   readonly projectDir: string;
-  jsonlFile: string;
+  jsonlFile: string | null;
   fileOffset: number;
   lineBuffer: string;
   readonly activeToolIds: Set<string>;
@@ -16,6 +16,18 @@ export interface AgentState {
   hadToolsInTurn: boolean;
   readonly folderName?: string;
   readonly source: 'claude-code' | 'openclaw';
+  isVirtual: boolean;
+  readonly openclawAgentId?: string;
+  readonly agentName?: string;
+  readonly identityGender?: 'male' | 'female' | 'any';
+}
+
+// ── Agent Appearance ──────────────────────────────────────────
+
+export interface AgentAppearance {
+  readonly gender: 'male' | 'female' | 'any';
+  readonly palette?: number;
+  readonly hueShift?: number;
 }
 
 // ── Monitored Project ────────────────────────────────────────
@@ -34,17 +46,31 @@ export interface AppConfig {
   readonly projects: readonly MonitoredProject[];
   readonly layoutFile: string;
   readonly soundEnabled: boolean;
+  readonly showInactiveAgents: boolean;
+  readonly agentAppearances?: Readonly<Record<string, AgentAppearance>>;
+  readonly miniappSettings?: MiniappSettings;
+}
+
+// ── Miniapp Settings (Phase 1) ────────────────────────────────
+
+export interface MiniappSettings {
+  readonly defaultAgent: string;
+  readonly notificationsEnabled: boolean;
+  readonly notificationChannel: 'telegram' | 'line';
+  readonly language: 'th' | 'en';
 }
 
 // ── WebSocket Messages (server → client) ─────────────────────
 
 export type ServerMessage =
-  | { readonly type: 'agentCreated'; readonly id: number; readonly folderName?: string; readonly source: string; readonly projectId?: string }
+  | { readonly type: 'agentCreated'; readonly id: number; readonly folderName?: string; readonly source: string; readonly projectId?: string; readonly openclawAgentId?: string; readonly agentName?: string; readonly isActive?: boolean; readonly identityGender?: 'male' | 'female' | 'any' }
   | { readonly type: 'agentClosed'; readonly id: number }
+  | { readonly type: 'agentActivated'; readonly id: number }
+  | { readonly type: 'agentDeactivated'; readonly id: number }
   | {
       readonly type: 'existingAgents';
       readonly agents: readonly number[];
-      readonly agentMeta: Readonly<Record<number, { readonly folderName?: string; readonly source: string; readonly projectId?: string }>>;
+      readonly agentMeta: Readonly<Record<number, { readonly folderName?: string; readonly source: string; readonly projectId?: string; readonly openclawAgentId?: string; readonly agentName?: string; readonly isActive?: boolean; readonly identityGender?: 'male' | 'female' | 'any' }>>;
     }
   | { readonly type: 'agentStatus'; readonly id: number; readonly status: 'active' | 'waiting' }
   | { readonly type: 'agentToolStart'; readonly id: number; readonly toolId: string; readonly status: string }
@@ -68,7 +94,23 @@ export type ServerMessage =
   | { readonly type: 'floorTilesLoaded'; readonly sprites: unknown }
   | { readonly type: 'wallTilesLoaded'; readonly sets: unknown }
   | { readonly type: 'furnitureAssetsLoaded'; readonly catalog: unknown; readonly sprites: unknown }
-  | { readonly type: 'settingsLoaded'; readonly soundEnabled: boolean };
+  | { readonly type: 'settingsLoaded'; readonly soundEnabled: boolean }
+  | { readonly type: 'existingActivities'; readonly activities: readonly ActivityRecord[] }
+  | { readonly type: 'activitiesCleared' }
+  | { readonly type: 'serverVersion'; readonly version: string };
+
+// ── Activity Record (server-side activity log entry) ─────────
+
+export interface ActivityRecord {
+  readonly id: string;
+  readonly agentId: number;
+  readonly agentName?: string;
+  readonly toolName: string;
+  readonly status: string;
+  readonly timestamp: number;
+  readonly done: boolean;
+  readonly permissionWait: boolean;
+}
 
 // ── WebSocket Messages (client → server) ─────────────────────
 
@@ -76,7 +118,9 @@ export type ClientMessage =
   | { readonly type: 'saveLayout'; readonly layout: Record<string, unknown> }
   | { readonly type: 'saveAgentSeats'; readonly seats: Record<string, unknown> }
   | { readonly type: 'setSoundEnabled'; readonly enabled: boolean }
-  | { readonly type: 'webviewReady' };
+  | { readonly type: 'setShowInactiveAgents'; readonly enabled: boolean }
+  | { readonly type: 'webviewReady' }
+  | { readonly type: 'clearActivities' };
 
 // ── Asset Types (re-exported for server use) ─────────────────
 

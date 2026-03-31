@@ -1,6 +1,8 @@
 import {
-  SEAT_REST_MAX_SEC,
-  SEAT_REST_MIN_SEC,
+  LOUNGE_CHANCE,
+  LOUNGE_SIT_MAX_SEC,
+  LOUNGE_SIT_MIN_SEC,
+  SIT_FRAME_DURATION_SEC,
   TYPE_FRAME_DURATION_SEC,
   WALK_FRAME_DURATION_SEC,
   WALK_SPEED_PX_PER_SEC,
@@ -78,6 +80,8 @@ export function createCharacter(
     bubbleType: null,
     bubbleTimer: 0,
     seatTimer: 0,
+    loungeSeatId: null,
+    loungeTimer: 0,
     isSubagent: false,
     parentAgentId: null,
     matrixEffect: null,
@@ -93,6 +97,7 @@ export function updateCharacter(
   seats: Map<string, Seat>,
   tileMap: TileTypeVal[][],
   blockedTiles: Set<string>,
+  findFreeLoungeSeat?: () => { uid: string; seat: Seat } | null,
 ): void {
   ch.frameTimer += dt;
 
@@ -115,6 +120,42 @@ export function updateCharacter(
         ch.wanderTimer = randomRange(WANDER_PAUSE_MIN_SEC, WANDER_PAUSE_MAX_SEC);
         ch.wanderCount = 0;
         ch.wanderLimit = randomInt(WANDER_MOVES_BEFORE_REST_MIN, WANDER_MOVES_BEFORE_REST_MAX);
+      }
+      break;
+    }
+
+    case CharacterState.SIT: {
+      // Lounge sitting -- slow 2-frame bob (like typing but much slower)
+      if (ch.frameTimer >= SIT_FRAME_DURATION_SEC) {
+        ch.frameTimer -= SIT_FRAME_DURATION_SEC;
+        ch.frame = (ch.frame + 1) % 2;
+      }
+      // If became active, stand up and go to work seat
+      if (ch.isActive) {
+        ch.loungeSeatId = null;
+        ch.loungeTimer = 0;
+        ch.state = CharacterState.IDLE;
+        ch.frame = 0;
+        ch.frameTimer = 0;
+        ch.wanderTimer = 0; // trigger immediate seat-seeking in IDLE
+        break;
+      }
+      // Count down lounge timer
+      ch.loungeTimer -= dt;
+      if (ch.loungeTimer <= 0) {
+        // Random chance to keep sitting a bit longer
+        if (Math.random() < 0.4) {
+          ch.loungeTimer = randomRange(LOUNGE_SIT_MIN_SEC, LOUNGE_SIT_MAX_SEC);
+        } else {
+          ch.loungeSeatId = null;
+          ch.loungeTimer = 0;
+          ch.state = CharacterState.IDLE;
+          ch.frame = 0;
+          ch.frameTimer = 0;
+          ch.wanderTimer = randomRange(WANDER_PAUSE_MIN_SEC, WANDER_PAUSE_MAX_SEC);
+          ch.wanderCount = 0;
+          ch.wanderLimit = randomInt(WANDER_MOVES_BEFORE_REST_MIN, WANDER_MOVES_BEFORE_REST_MAX);
+        }
       }
       break;
     }
@@ -161,29 +202,47 @@ export function updateCharacter(
       // Countdown wander timer
       ch.wanderTimer -= dt;
       if (ch.wanderTimer <= 0) {
-        // Check if we've wandered enough -- return to seat for a rest
-        if (ch.wanderCount >= ch.wanderLimit && ch.seatId) {
-          const seat = seats.get(ch.seatId);
-          if (seat) {
+        if (ch.wanderCount >= ch.wanderLimit) {
+          ch.wanderCount = 0;
+          ch.wanderLimit = randomInt(WANDER_MOVES_BEFORE_REST_MIN, WANDER_MOVES_BEFORE_REST_MAX);
+        }
+        // Randomly decide: stay idle, try lounge, or wander
+        const roll = Math.random();
+        let didAction = false;
+        if (roll < 0.3) {
+          // 30% -- just stay idle a bit longer
+          didAction = true;
+        } else if (roll < 0.6 && findFreeLoungeSeat) {
+          // 30% -- try to sit in a lounge seat
+          const lounge = findFreeLoungeSeat();
+          if (lounge) {
+            // Unblock lounge seat tile temporarily so pathfinding can reach it
+            const loungeKey = `${lounge.seat.seatCol},${lounge.seat.seatRow}`;
+            const wasBlocked = blockedTiles.has(loungeKey);
+            if (wasBlocked) blockedTiles.delete(loungeKey);
             const path = findPath(
               ch.tileCol,
               ch.tileRow,
-              seat.seatCol,
-              seat.seatRow,
+              lounge.seat.seatCol,
+              lounge.seat.seatRow,
               tileMap,
               blockedTiles,
             );
+            if (wasBlocked) blockedTiles.add(loungeKey);
             if (path.length > 0) {
+              ch.loungeSeatId = lounge.uid;
               ch.path = path;
               ch.moveProgress = 0;
               ch.state = CharacterState.WALK;
               ch.frame = 0;
               ch.frameTimer = 0;
-              break;
+              ch.wanderCount++;
+              didAction = true;
             }
           }
         }
-        if (walkableTiles.length > 0) {
+        // 40% (or fallback) -- wander randomly
+        if (!didAction && walkableTiles.length > 0) {
           const target = walkableTiles[Math.floor(Math.random() * walkableTiles.length)];
           const path = findPath(
             ch.tileCol,
@@ -233,30 +292,20 @@ export function updateCharacter(
               ch.state = CharacterState.IDLE;
             }
           }
-        } else {
-          // Check if arrived at assigned seat -- sit down for a rest before wandering again
-          if (ch.seatId) {
-            const seat = seats.get(ch.seatId);
-            if (seat && ch.tileCol === seat.seatCol && ch.tileRow === seat.seatRow) {
-              ch.state = CharacterState.TYPE;
-              ch.dir = seat.facingDir;
-              // seatTimer < 0 is a sentinel from setAgentActive(false) meaning
-              // "turn just ended" -- skip the long rest so idle transition is immediate
-              if (ch.seatTimer < 0) {
-                ch.seatTimer = 0;
-              } else {
-                ch.seatTimer = randomRange(SEAT_REST_MIN_SEC, SEAT_REST_MAX_SEC);
-              }
-              ch.wanderCount = 0;
-              ch.wanderLimit = randomInt(
-                WANDER_MOVES_BEFORE_REST_MIN,
-                WANDER_MOVES_BEFORE_REST_MAX,
-              );
-              ch.frame = 0;
-              ch.frameTimer = 0;
-              break;
-            }
+        } else if (ch.loungeSeatId) {
+          // Arrived at lounge seat -- sit down
+          const loungeSeat = seats.get(ch.loungeSeatId);
+          if (loungeSeat && ch.tileCol === loungeSeat.seatCol && ch.tileRow === loungeSeat.seatRow) {
+            ch.state = CharacterState.SIT;
+            ch.dir = loungeSeat.facingDir;
+            ch.loungeTimer = randomRange(LOUNGE_SIT_MIN_SEC, LOUNGE_SIT_MAX_SEC);
+          } else {
+            // Didn't reach lounge seat -- give up
+            ch.loungeSeatId = null;
+            ch.state = CharacterState.IDLE;
+            ch.wanderTimer = randomRange(WANDER_PAUSE_MIN_SEC, WANDER_PAUSE_MAX_SEC);
           }
+        } else {
           ch.state = CharacterState.IDLE;
           ch.wanderTimer = randomRange(WANDER_PAUSE_MIN_SEC, WANDER_PAUSE_MAX_SEC);
         }
@@ -287,8 +336,9 @@ export function updateCharacter(
         ch.moveProgress = 0;
       }
 
-      // If became active while wandering, repath to seat
+      // If became active while wandering, repath to seat (abandon lounge)
       if (ch.isActive && ch.seatId) {
+        ch.loungeSeatId = null;
         const seat = seats.get(ch.seatId);
         if (seat) {
           const lastStep = ch.path[ch.path.length - 1];
@@ -320,6 +370,9 @@ export function getCharacterSprite(ch: Character, sprites: CharacterSprites): Sp
       if (isReadingTool(ch.currentTool)) {
         return sprites.reading[ch.dir][ch.frame % 2];
       }
+      return sprites.typing[ch.dir][ch.frame % 2];
+    case CharacterState.SIT:
+      // Lounge sitting uses typing sprite frames (same seated pose, slower animation)
       return sprites.typing[ch.dir][ch.frame % 2];
     case CharacterState.WALK:
       return sprites.walk[ch.dir][ch.frame % 4];

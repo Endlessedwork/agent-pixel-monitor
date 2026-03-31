@@ -34,6 +34,9 @@ import { CharacterState, Direction, MATRIX_EFFECT_DURATION, TILE_SIZE } from '..
 import { createCharacter, updateCharacter } from './characters.js';
 import { matrixEffectSeeds } from './matrixEffect.js';
 
+export const MALE_PALETTES = [0, 4, 6, 8, 10, 12];
+export const FEMALE_PALETTES = [1, 2, 3, 5, 7, 9, 11, 13];
+
 export class OfficeState {
   layout: OfficeLayout;
   tileMap: TileTypeVal[][];
@@ -111,9 +114,9 @@ export class OfficeState {
       ch.seatId = null; // will be reassigned below
     }
 
-    // Second pass: assign remaining characters to free seats
+    // Second pass: assign remaining ACTIVE characters to free work seats
     for (const ch of this.characters.values()) {
-      if (ch.seatId) continue;
+      if (ch.seatId || !ch.isActive) continue;
       const seatId = this.findFreeSeat();
       if (seatId) {
         this.seats.get(seatId)!.assigned = true;
@@ -175,15 +178,37 @@ export class OfficeState {
   }
 
   private findFreeSeat(): string | null {
-    // Prefer seats adjacent to desks (work seats) over lounge seats
+    // Only assign work seats (adjacent to desks) as permanent seats.
+    // Lounge seats (not adjacent to desks) are reserved for temporary idle sitting.
     for (const [uid, seat] of this.seats) {
       if (!seat.assigned && seat.adjacentDesk) return uid;
     }
-    // Fall back to any free seat
-    for (const [uid, seat] of this.seats) {
-      if (!seat.assigned) return uid;
-    }
     return null;
+  }
+
+  /** Find a random free lounge seat (non-desk seat not claimed or occupied by any agent) */
+  private findFreeLoungeSeat(): { uid: string; seat: Seat } | null {
+    // Collect lounge seats claimed or physically occupied by agents
+    const occupiedSeats = new Set<string>();
+    for (const ch of this.characters.values()) {
+      if (ch.loungeSeatId) occupiedSeats.add(ch.loungeSeatId);
+      // Also block seats where an agent is physically at (even after clearing loungeSeatId)
+      if (ch.state === CharacterState.SIT || ch.state === CharacterState.IDLE) {
+        for (const [uid, seat] of this.seats) {
+          if (!seat.adjacentDesk && seat.seatCol === ch.tileCol && seat.seatRow === ch.tileRow) {
+            occupiedSeats.add(uid);
+          }
+        }
+      }
+    }
+    const candidates: Array<{ uid: string; seat: Seat }> = [];
+    for (const [uid, seat] of this.seats) {
+      if (!seat.adjacentDesk && !seat.assigned && !occupiedSeats.has(uid)) {
+        candidates.push({ uid, seat });
+      }
+    }
+    if (candidates.length === 0) return null;
+    return candidates[Math.floor(Math.random() * candidates.length)];
   }
 
   /**
@@ -191,21 +216,22 @@ export class OfficeState {
    * First 6 agents each get a unique skin (random order). Beyond 6, skins
    * repeat in balanced rounds with a random hue shift (>=45 deg).
    */
-  private pickDiversePalette(): { palette: number; hueShift: number } {
-    // Count how many non-sub-agents use each base palette (0-5)
-    const counts = new Array(PALETTE_COUNT).fill(0) as number[];
+  private pickDiversePalette(gender: 'male' | 'female' | 'any' = 'any'): { palette: number; hueShift: number } {
+    const allowed = gender === 'male' ? MALE_PALETTES
+      : gender === 'female' ? FEMALE_PALETTES
+      : Array.from({ length: PALETTE_COUNT }, (_, i) => i);
+
+    const counts = new Map<number, number>();
+    for (const p of allowed) counts.set(p, 0);
     for (const ch of this.characters.values()) {
       if (ch.isSubagent) continue;
-      counts[ch.palette]++;
+      if (counts.has(ch.palette)) counts.set(ch.palette, counts.get(ch.palette)! + 1);
     }
-    const minCount = Math.min(...counts);
-    // Available = palettes at the minimum count (least used)
-    const available: number[] = [];
-    for (let i = 0; i < PALETTE_COUNT; i++) {
-      if (counts[i] === minCount) available.push(i);
-    }
+
+    const minCount = Math.min(...counts.values());
+    const available = allowed.filter(p => counts.get(p) === minCount);
     const palette = available[Math.floor(Math.random() * available.length)];
-    // First round (minCount === 0): no hue shift. Subsequent rounds: random >=45 deg.
+
     let hueShift = 0;
     if (minCount > 0) {
       hueShift = HUE_SHIFT_MIN_DEG + Math.floor(Math.random() * HUE_SHIFT_RANGE_DEG);
@@ -221,6 +247,10 @@ export class OfficeState {
     skipSpawnEffect?: boolean,
     folderName?: string,
     projectId?: string,
+    gender?: 'male' | 'female' | 'any',
+    openclawAgentId?: string,
+    agentName?: string,
+    isActive?: boolean,
   ): void {
     if (this.characters.has(id)) return;
 
@@ -230,21 +260,25 @@ export class OfficeState {
       palette = preferredPalette;
       hueShift = preferredHueShift ?? 0;
     } else {
-      const pick = this.pickDiversePalette();
+      const pick = this.pickDiversePalette(gender);
       palette = pick.palette;
       hueShift = pick.hueShift;
     }
 
     // Try preferred seat first, then any free seat
+    // Inactive/virtual agents don't get permanent work seats -- they wander and use lounge seats
     let seatId: string | null = null;
-    if (preferredSeatId && this.seats.has(preferredSeatId)) {
-      const seat = this.seats.get(preferredSeatId)!;
-      if (!seat.assigned) {
-        seatId = preferredSeatId;
+    if (isActive !== false) {
+      if (preferredSeatId && this.seats.has(preferredSeatId)) {
+        const seat = this.seats.get(preferredSeatId)!;
+        // Only accept preferred seat if it's a work seat (adjacent to desk)
+        if (!seat.assigned && seat.adjacentDesk) {
+          seatId = preferredSeatId;
+        }
       }
-    }
-    if (!seatId) {
-      seatId = this.findFreeSeat();
+      if (!seatId) {
+        seatId = this.findFreeSeat();
+      }
     }
 
     let ch: Character;
@@ -271,12 +305,22 @@ export class OfficeState {
     if (projectId) {
       ch.projectId = projectId;
     }
+    ch.openclawAgentId = openclawAgentId;
+    ch.agentName = agentName;
     if (!skipSpawnEffect) {
       ch.matrixEffect = 'spawn';
       ch.matrixEffectTimer = 0;
       ch.matrixEffectSeeds = matrixEffectSeeds();
     }
     this.characters.set(id, ch);
+
+    if (isActive === false) {
+      ch.isActive = false;
+      ch.state = CharacterState.IDLE;
+      ch.frame = 0;
+      ch.frameTimer = 0;
+      ch.wanderTimer = Math.random() * 3; // start wandering soon
+    }
   }
 
   removeAgent(id: number): void {
@@ -529,7 +573,25 @@ export class OfficeState {
     const ch = this.characters.get(id);
     if (ch) {
       ch.isActive = active;
-      if (!active) {
+      if (active) {
+        // Clear lounge state when agent becomes active
+        ch.loungeSeatId = null;
+        ch.loungeTimer = 0;
+        // Assign a work seat if agent doesn't have one (virtual → active transition)
+        if (!ch.seatId) {
+          const seatId = this.findFreeSeat();
+          if (seatId) {
+            this.seats.get(seatId)!.assigned = true;
+            ch.seatId = seatId;
+          }
+        }
+      } else {
+        // Release work seat when agent becomes inactive
+        if (ch.seatId) {
+          const seat = this.seats.get(ch.seatId);
+          if (seat) seat.assigned = false;
+          ch.seatId = null;
+        }
         // Sentinel -1: signals turn just ended, skip next seat rest timer.
         // Prevents the WALK handler from setting a 2-4 min rest on arrival.
         ch.seatTimer = -1;
@@ -681,8 +743,9 @@ export class OfficeState {
       }
 
       // Temporarily unblock own seat so character can pathfind to it
+      const findLounge = !ch.isActive ? () => this.findFreeLoungeSeat() : undefined;
       this.withOwnSeatUnblocked(ch, () =>
-        updateCharacter(ch, dt, this.walkableTiles, this.seats, this.tileMap, this.blockedTiles),
+        updateCharacter(ch, dt, this.walkableTiles, this.seats, this.tileMap, this.blockedTiles, findLounge),
       );
 
       // Tick bubble timer for waiting bubbles
@@ -712,7 +775,7 @@ export class OfficeState {
       if (ch.matrixEffect === 'despawn') continue;
       // Character sprite is 16x24, anchored bottom-center
       // Apply sitting offset to match visual position
-      const sittingOffset = ch.state === CharacterState.TYPE ? CHARACTER_SITTING_OFFSET_PX : 0;
+      const sittingOffset = (ch.state === CharacterState.TYPE || ch.state === CharacterState.SIT) ? CHARACTER_SITTING_OFFSET_PX : 0;
       const anchorY = ch.y + sittingOffset;
       const left = ch.x - CHARACTER_HIT_HALF_WIDTH;
       const right = ch.x + CHARACTER_HIT_HALF_WIDTH;

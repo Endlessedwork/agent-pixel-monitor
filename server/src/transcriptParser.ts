@@ -19,40 +19,89 @@ export const PERMISSION_EXEMPT_TOOLS = new Set(['Task', 'Agent', 'AskUserQuestio
 
 export function formatToolStatus(toolName: string, input: Record<string, unknown>): string {
   const base = (p: unknown) => (typeof p === 'string' ? path.basename(p) : '');
-  switch (toolName) {
-    case 'Read':
-      return `Reading ${base(input.file_path)}`;
-    case 'Edit':
-      return `Editing ${base(input.file_path)}`;
-    case 'Write':
-      return `Writing ${base(input.file_path)}`;
-    case 'Bash': {
+  const truncate = (s: string, max: number) => s.length > max ? s.slice(0, max) + '\u2026' : s;
+  const name = toolName.toLowerCase();
+  switch (name) {
+    case 'read':
+      return `Reading ${base(input.file_path) || 'file'}`;
+    case 'edit':
+      return `Editing ${base(input.file_path) || 'file'}`;
+    case 'write':
+      return `Writing ${base(input.file_path) || 'file'}`;
+    case 'bash':
+    case 'exec': {
       const cmd = (input.command as string) || '';
-      return `Running: ${cmd.length > BASH_COMMAND_DISPLAY_MAX_LENGTH ? cmd.slice(0, BASH_COMMAND_DISPLAY_MAX_LENGTH) + '\u2026' : cmd}`;
+      // Extract URL from curl commands for better readability
+      if (/^\s*curl\b/.test(cmd)) {
+        const urlMatch = cmd.match(/(?:https?:\/\/)\S+/);
+        if (urlMatch) {
+          const url = urlMatch[0].replace(/['"]+$/g, '');
+          return `curl ${truncate(url, 120)}`;
+        }
+        return 'Running curl';
+      }
+      return `Running: ${truncate(cmd, BASH_COMMAND_DISPLAY_MAX_LENGTH)}`;
     }
-    case 'Glob':
-      return 'Searching files';
-    case 'Grep':
-      return 'Searching code';
-    case 'WebFetch':
-      return 'Fetching web content';
-    case 'WebSearch':
-      return 'Searching the web';
-    case 'Task':
-    case 'Agent': {
+    case 'glob':
+      return `Searching files${input.pattern ? `: ${input.pattern}` : ''}`;
+    case 'grep':
+      return `Searching code${input.pattern ? `: ${input.pattern}` : ''}`;
+    case 'webfetch':
+    case 'web_fetch': {
+      const url = (input.url as string) || '';
+      return url ? `Fetching ${truncate(url, 120)}` : 'Fetching web content';
+    }
+    case 'websearch':
+    case 'web_search': {
+      const query = (input.query as string) || '';
+      return query ? `Searching web: ${truncate(query, 100)}` : 'Searching the web';
+    }
+    case 'browser': {
+      const bUrl = (input.url as string) || '';
+      return bUrl ? `Browsing ${truncate(bUrl, 120)}` : 'Browsing web';
+    }
+    case 'task':
+    case 'agent': {
       const desc = typeof input.description === 'string' ? input.description : '';
       return desc
-        ? `Subtask: ${desc.length > TASK_DESCRIPTION_DISPLAY_MAX_LENGTH ? desc.slice(0, TASK_DESCRIPTION_DISPLAY_MAX_LENGTH) + '\u2026' : desc}`
+        ? `Subtask: ${truncate(desc, TASK_DESCRIPTION_DISPLAY_MAX_LENGTH)}`
         : 'Running subtask';
     }
-    case 'AskUserQuestion':
+    case 'sessions_spawn':
+      return `Spawning agent${input.agentId ? `: ${input.agentId}` : input.agent ? `: ${input.agent}` : ''}`;
+    case 'sessions_list':
+      return 'Listing sessions';
+    case 'sessions_history':
+      return 'Reviewing session history';
+    case 'session_status':
+      return 'Checking session status';
+    case 'sessions_yield':
+      return 'Yielding session';
+    case 'memory_search':
+      return 'Searching memory';
+    case 'message':
+      return 'Sending message';
+    case 'cron':
+      return 'Managing cron job';
+    case 'gateway':
+      return 'Using gateway';
+    case 'process':
+      return 'Managing process';
+    case 'agents_list':
+      return 'Listing agents';
+    case 'askuserquestion':
       return 'Waiting for your answer';
-    case 'EnterPlanMode':
+    case 'enterplanmode':
       return 'Planning';
-    case 'NotebookEdit':
+    case 'notebookedit':
       return 'Editing notebook';
-    default:
+    default: {
+      // MCP browser/navigation tools: extract URL if present
+      if (name.includes('navigate') && input.url) {
+        return `Browsing ${truncate(input.url as string, 120)}`;
+      }
       return `Using ${toolName}`;
+    }
   }
 }
 
@@ -70,11 +119,21 @@ export function processTranscriptLine(
     const record = JSON.parse(line);
 
     if (record.type === 'assistant' && Array.isArray(record.message?.content)) {
+      // Claude Code format: { type: 'assistant', message: { content: [...] } }
       processAssistantRecord(agentId, record, agent, agents, waitingTimers, permissionTimers, sendMessage);
+    } else if (record.type === 'message' && record.message?.role === 'assistant') {
+      // OpenClaw format: { type: 'message', message: { role: 'assistant', content: [...] } }
+      processAssistantRecord(agentId, record, agent, agents, waitingTimers, permissionTimers, sendMessage);
+    } else if (record.type === 'message' && record.message?.role === 'toolResult') {
+      // OpenClaw format: { type: 'message', message: { role: 'toolResult', toolCallId: '...' } }
+      processOpenclawToolResult(agentId, record, agent, waitingTimers, permissionTimers, sendMessage);
     } else if (record.type === 'progress') {
       processProgressRecord(agentId, record, agents, waitingTimers, permissionTimers, sendMessage);
     } else if (record.type === 'user') {
       processUserRecord(agentId, record, agent, waitingTimers, permissionTimers, sendMessage);
+    } else if (record.type === 'message' && record.message?.role === 'user') {
+      // OpenClaw format for user messages
+      processUserRecord(agentId, { ...record, type: 'user' }, agent, waitingTimers, permissionTimers, sendMessage);
     } else if (record.type === 'system' && record.subtype === 'turn_duration') {
       processTurnDuration(agentId, agent, waitingTimers, permissionTimers, sendMessage);
     }
@@ -99,7 +158,8 @@ function processAssistantRecord(
     name?: string;
     input?: Record<string, unknown>;
   }>;
-  const hasToolUse = blocks.some((b) => b.type === 'tool_use');
+  // Support both Claude Code ('tool_use') and OpenClaw ('toolCall') formats
+  const hasToolUse = blocks.some((b) => b.type === 'tool_use' || b.type === 'toolCall');
 
   if (hasToolUse) {
     cancelWaitingTimer(agentId, waitingTimers);
@@ -108,9 +168,10 @@ function processAssistantRecord(
     sendMessage({ type: 'agentStatus', id: agentId, status: 'active' });
     let hasNonExemptTool = false;
     for (const block of blocks) {
-      if (block.type === 'tool_use' && block.id) {
+      if ((block.type === 'tool_use' || block.type === 'toolCall') && block.id) {
         const toolName = block.name || '';
-        const status = formatToolStatus(toolName, block.input || {});
+        const input = (block as Record<string, unknown>).input || (block as Record<string, unknown>).arguments || {};
+        const status = formatToolStatus(toolName, input as Record<string, unknown>);
         console.log(`[Pixel Agents] Agent ${agentId} tool start: ${block.id} ${status}`);
         agent.activeToolIds.add(block.id);
         agent.activeToolStatuses.set(block.id, status);
@@ -187,6 +248,40 @@ function processUserRecord(
   } else if (typeof content === 'string' && content.trim()) {
     cancelWaitingTimer(agentId, waitingTimers);
     clearAgentActivity(agent, agentId, permissionTimers, sendMessage);
+    agent.hadToolsInTurn = false;
+  }
+}
+
+/** Handle OpenClaw toolResult records (role: 'toolResult' at message level, not nested in content) */
+function processOpenclawToolResult(
+  agentId: number,
+  record: Record<string, unknown>,
+  agent: AgentState,
+  waitingTimers: Map<number, ReturnType<typeof setTimeout>>,
+  permissionTimers: Map<number, ReturnType<typeof setTimeout>>,
+  sendMessage: MessageSender,
+): void {
+  const message = record.message as Record<string, unknown> | undefined;
+  if (!message) return;
+  const toolCallId = message.toolCallId as string | undefined;
+  if (!toolCallId) return;
+
+  console.log(`[Pixel Agents] Agent ${agentId} tool done: ${toolCallId}`);
+  const completedToolName = agent.activeToolNames.get(toolCallId);
+  if (completedToolName === 'Task' || completedToolName === 'Agent') {
+    agent.activeSubagentToolIds.delete(toolCallId);
+    agent.activeSubagentToolNames.delete(toolCallId);
+    sendMessage({ type: 'subagentClear', id: agentId, parentToolId: toolCallId });
+  }
+  agent.activeToolIds.delete(toolCallId);
+  agent.activeToolStatuses.delete(toolCallId);
+  agent.activeToolNames.delete(toolCallId);
+  const toolId = toolCallId;
+  setTimeout(() => {
+    sendMessage({ type: 'agentToolDone', id: agentId, toolId });
+  }, TOOL_DONE_DELAY_MS);
+
+  if (agent.activeToolIds.size === 0) {
     agent.hadToolsInTurn = false;
   }
 }

@@ -73,3 +73,10 @@ body,
 * {
   font-family: 'FS Pixel Sans', sans-serif;
 }
+
+/* ── Mobile Responsive ── */
+@media (max-width: 768px) {
+  .desktop-only {
+    display: none !important;
+  }
+}

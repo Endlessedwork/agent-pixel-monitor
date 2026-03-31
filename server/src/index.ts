@@ -18,6 +18,7 @@ import { serveStatic } from 'hono/bun';
 import {
   createAgentManagerState,
   disposeAll,
+  seedInactiveOpenclawAgents,
   sendExistingAgents,
   startProjectMonitoring,
   stopProjectMonitoring,
@@ -26,29 +27,79 @@ import { loadFurnitureAssets, loadDefaultLayout } from './assetLoader.js';
 import { loadCharacterSprites, loadFloorTiles, loadWallTiles } from './assetLoaderSprites.js';
 import {
   addProject,
+  clearActivityLogFile,
+  loadActivityLog,
   loadConfig,
   loadLayout,
   readLayoutFromFile,
   removeProject,
+  saveActivityLogDebounced,
   saveConfig,
+  updateAgentAppearance,
+  updateShowInactiveAgents,
   updateSoundEnabled,
   watchLayoutFile,
   writeLayoutToFile,
 } from './configManager.js';
 import {
+  ACTIVITY_LOG_MAX_ENTRIES,
   CLAUDE_SESSIONS_BASE,
   CLIENT_ASSETS_DIR,
   OPENCLAW_SESSIONS_BASE,
   SERVER_PORT,
 } from './constants.js';
-import type { AppConfig, ClientMessage, MonitoredProject, ServerMessage } from './types.js';
+import type { ActivityRecord, AppConfig, ClientMessage, MonitoredProject, ServerMessage } from './types.js';
 import { createWSManager } from './wsManager.js';
 
 // ── State ────────────────────────────────────────────────────
 
-const agentState = createAgentManagerState();
-const wsManager = createWSManager();
 let config = loadConfig();
+const SERVER_VERSION = Date.now().toString(36);
+const agentState = createAgentManagerState(config.showInactiveAgents);
+agentState.activityLog.push(...loadActivityLog());
+const wsManager = createWSManager();
+
+// Wrap broadcast to record tool activities in the server-side activity log
+function broadcastWithActivityLog(msg: ServerMessage): void {
+  wsManager.broadcast(msg);
+  const log = agentState.activityLog;
+  let changed = false;
+  if (msg.type === 'agentToolStart') {
+    const key = `${msg.id}-${msg.toolId}`;
+    // Extract short tool name from status (e.g. "Reading foo.ts" -> "Read")
+    const toolName = msg.status.split(/[\s:]/)[0] || msg.status;
+    const agent = agentState.agents.get(msg.id);
+    log.unshift({
+      id: key,
+      agentId: msg.id,
+      agentName: agent?.agentName || agent?.folderName,
+      toolName,
+      status: msg.status,
+      timestamp: Date.now(),
+      done: false,
+      permissionWait: false,
+    });
+    if (log.length > ACTIVITY_LOG_MAX_ENTRIES) log.length = ACTIVITY_LOG_MAX_ENTRIES;
+    changed = true;
+  } else if (msg.type === 'agentToolDone') {
+    const key = `${msg.id}-${msg.toolId}`;
+    const idx = log.findIndex((e) => e.id === key);
+    if (idx !== -1) {
+      log[idx] = { ...log[idx], done: true, timestamp: Date.now() };
+      changed = true;
+    }
+  } else if (msg.type === 'agentToolPermission') {
+    for (let i = 0; i < log.length; i++) {
+      if (log[i].agentId === msg.id && !log[i].done && !log[i].permissionWait) {
+        log[i] = { ...log[i], permissionWait: true };
+        changed = true;
+      }
+    }
+  }
+  if (changed) {
+    saveActivityLogDebounced(log);
+  }
+}
 
 // ── Hono App ─────────────────────────────────────────────────
 
@@ -89,7 +140,7 @@ app.post('/api/config/projects', async (c) => {
     };
 
     config = addProject(config, project);
-    startProjectMonitoring(project, agentState, wsManager.broadcast);
+    startProjectMonitoring(project, agentState, broadcastWithActivityLog);
     wsManager.broadcast({ type: 'configUpdated', config });
 
     return c.json({ project });
@@ -214,11 +265,111 @@ app.post('/api/config/sound', async (c) => {
   }
 });
 
+// ── REST API: Miniapp Settings (Phase 1) ─────────────────────
+
+app.get('/api/settings/miniapp', (c) => {
+  return c.json(config.miniappSettings ?? {
+    defaultAgent: 'main',
+    notificationsEnabled: true,
+    notificationChannel: 'telegram',
+    language: 'th',
+  });
+});
+
+app.post('/api/settings/miniapp', async (c) => {
+  try {
+    const body = await c.req.json<{
+      defaultAgent?: string;
+      notificationsEnabled?: boolean;
+      notificationChannel?: 'telegram' | 'line';
+      language?: 'th' | 'en';
+    }>();
+
+    const current = config.miniappSettings ?? {
+      defaultAgent: 'main',
+      notificationsEnabled: true,
+      notificationChannel: 'telegram' as const,
+      language: 'th' as const,
+    };
+
+    const updated = {
+      defaultAgent: body.defaultAgent ?? current.defaultAgent,
+      notificationsEnabled: body.notificationsEnabled ?? current.notificationsEnabled,
+      notificationChannel: body.notificationChannel ?? current.notificationChannel,
+      language: body.language ?? current.language,
+    };
+
+    config = { ...config, miniappSettings: updated };
+    saveConfig(config);
+    wsManager.broadcast({ type: 'configUpdated', config });
+
+    console.log(`[Server] Miniapp settings updated: defaultAgent=${updated.defaultAgent}, lang=${updated.language}`);
+    return c.json({ success: true, settings: updated });
+  } catch (err) {
+    console.error('[Server] Error updating miniapp settings:', err);
+    return c.json({ error: 'Failed to update miniapp settings' }, 500);
+  }
+});
+
+// ── REST API: Agent Appearances ──────────────────────────────
+
+app.get('/api/config/appearances', (c) => {
+  const config = loadConfig();
+  return c.json(config.agentAppearances ?? {});
+});
+
+app.put('/api/config/appearances/:agentKey', async (c) => {
+  const agentKey = c.req.param('agentKey');
+  const body = await c.req.json();
+  config = updateAgentAppearance(config, agentKey, body);
+  return c.json({ success: true });
+});
+
+// ── REST API: OpenClaw Agents ────────────────────────────────
+
+app.get('/api/openclaw/agents', (c) => {
+  const openclawDir = path.join(os.homedir(), '.openclaw');
+  const agentsDir = path.join(openclawDir, 'agents');
+  if (!fs.existsSync(agentsDir)) return c.json({ agents: [] });
+
+  // Read agent names from config
+  let agentNames: Record<string, string> = {};
+  try {
+    const configPath = path.join(openclawDir, 'openclaw.json');
+    if (fs.existsSync(configPath)) {
+      const ocConfig = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+      const list = ocConfig?.agents?.list;
+      if (Array.isArray(list)) {
+        for (const a of list) {
+          if (a.id) agentNames[a.id] = a.name || a.id;
+        }
+      }
+    }
+  } catch { /* ignore */ }
+
+  // Scan directories
+  const agents: Array<{ id: string; name: string }> = [];
+  try {
+    for (const dir of fs.readdirSync(agentsDir)) {
+      const sessDir = path.join(agentsDir, dir, 'sessions');
+      if (fs.existsSync(sessDir)) {
+        agents.push({ id: dir, name: agentNames[dir] || dir });
+      }
+    }
+  } catch { /* ignore */ }
+
+  return c.json({ agents });
+});
+
 // ── Static Files (production) ────────────────────────────────
 
 const clientDistPath = path.join(path.dirname(path.dirname(__dirname)), 'client', 'dist');
 if (fs.existsSync(clientDistPath)) {
-  app.use('/*', serveStatic({ root: clientDistPath }));
+  // Serve static files with absolute path using rewriteRequestPath
+  app.use('/*', serveStatic({
+    root: '/',
+    rewriteRequestPath: (reqPath) => path.join(clientDistPath, reqPath),
+  }));
   // SPA fallback - serve index.html for non-API, non-asset routes
   app.get('*', (c) => {
     const indexPath = path.join(clientDistPath, 'index.html');
@@ -271,8 +422,35 @@ function handleWsMessage(data: string): void {
         config = updateSoundEnabled(config, message.enabled);
         break;
       }
+      case 'setShowInactiveAgents': {
+        config = updateShowInactiveAgents(config, message.enabled);
+        agentState.showInactiveAgents.current = message.enabled;
+        if (!message.enabled) {
+          // Remove all virtual agents
+          for (const [id, agent] of [...agentState.agents]) {
+            if (agent.isVirtual) {
+              agentState.agents.delete(id);
+              wsManager.broadcast({ type: 'agentClosed', id });
+            }
+          }
+        } else {
+          // Re-seed inactive agents for all openclaw projects
+          for (const p of config.projects) {
+            if (p.source === 'openclaw') {
+              seedInactiveOpenclawAgents(p, agentState, broadcastWithActivityLog);
+            }
+          }
+        }
+        break;
+      }
       case 'webviewReady': {
         // Client ready - existing agents are sent per-connection in the open handler
+        break;
+      }
+      case 'clearActivities': {
+        agentState.activityLog.length = 0;
+        clearActivityLogFile();
+        wsManager.broadcast({ type: 'activitiesCleared' } as ServerMessage);
         break;
       }
       default:
@@ -287,7 +465,7 @@ function handleWsMessage(data: string): void {
 
 function startConfiguredProjects(): void {
   for (const project of config.projects) {
-    startProjectMonitoring(project, agentState, wsManager.broadcast);
+    startProjectMonitoring(project, agentState, broadcastWithActivityLog);
   }
   console.log(`[Server] Monitoring ${config.projects.length} configured project(s)`);
 }
@@ -362,6 +540,16 @@ const server = Bun.serve({
 
       // Send existing agents
       sendExistingAgents(agentState, sendToClient);
+
+      // Send activity history (last 24 hours only)
+      const oneDayAgo = Date.now() - 24 * 60 * 60 * 1000;
+      const recentActivities = agentState.activityLog.filter(a => a.timestamp >= oneDayAgo);
+      if (recentActivities.length > 0) {
+        sendToClient({ type: 'existingActivities', activities: recentActivities } as ServerMessage);
+      }
+
+      // Send server version for auto-refresh
+      sendToClient({ type: 'serverVersion', version: SERVER_VERSION } as ServerMessage);
 
       // Send current config and settings
       wsManager.sendTo(ws, { type: 'configUpdated', config });

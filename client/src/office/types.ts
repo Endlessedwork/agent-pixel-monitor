@@ -40,6 +40,7 @@ export const CharacterState = {
   IDLE: 'idle',
   WALK: 'walk',
   TYPE: 'type',
+  SIT: 'sit',
 } as const;
 export type CharacterState = (typeof CharacterState)[keyof typeof CharacterState];
 
@@ -90,6 +91,7 @@ export interface ToolActivity {
 export interface ActivityEntry {
   readonly id: string;
   readonly agentId: number;
+  readonly agentName?: string;
   readonly toolName: string;
   readonly status: string;
   readonly timestamp: number;
@@ -197,6 +199,10 @@ export interface Character {
   bubbleTimer: number;
   /** Timer to stay seated while inactive after seat reassignment (counts down to 0) */
   seatTimer: number;
+  /** Temporary lounge seat uid (non-desk seat for idle sitting), or null */
+  loungeSeatId: string | null;
+  /** Countdown timer for how long to sit in a lounge seat */
+  loungeTimer: number;
   /** Whether this character represents a sub-agent (spawned by Task tool) */
   isSubagent: boolean;
   /** Parent agent ID if this is a sub-agent, null otherwise */
@@ -211,4 +217,8 @@ export interface Character {
   folderName?: string;
   /** Project ID for multi-project monitoring */
   projectId?: string;
+  /** OpenClaw agent ID (if from OpenClaw) */
+  openclawAgentId?: string;
+  /** Display name for the agent */
+  agentName?: string;
 }

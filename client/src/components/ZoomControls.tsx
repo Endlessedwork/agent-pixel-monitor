@@ -12,24 +12,28 @@ interface ZoomControlsProps {
   zoom: number;
   onZoomChange: (zoom: number) => void;
   onCenter: () => void;
+  isMobile?: boolean;
 }
 
-const btnBase: React.CSSProperties = {
-  width: 40,
-  height: 40,
-  padding: 0,
-  background: 'var(--pixel-bg)',
-  color: 'var(--pixel-text)',
-  border: '2px solid var(--pixel-border)',
-  borderRadius: 0,
-  cursor: 'pointer',
-  display: 'flex',
-  alignItems: 'center',
-  justifyContent: 'center',
-  boxShadow: 'var(--pixel-shadow)',
+const getButtonStyle = (isMobile: boolean): React.CSSProperties => {
+  const size = isMobile ? 44 : 40;
+  return {
+    width: size,
+    height: size,
+    padding: 0,
+    background: 'var(--pixel-bg)',
+    color: 'var(--pixel-text)',
+    border: '2px solid var(--pixel-border)',
+    borderRadius: 0,
+    cursor: 'pointer',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    boxShadow: 'var(--pixel-shadow)',
+  };
 };
 
-export function ZoomControls({ zoom, onZoomChange, onCenter }: ZoomControlsProps) {
+export function ZoomControls({ zoom, onZoomChange, onCenter, isMobile }: ZoomControlsProps) {
   const [hovered, setHovered] = useState<'minus' | 'plus' | 'center' | null>(null);
   const [showLevel, setShowLevel] = useState(false);
   const [fadeOut, setFadeOut] = useState(false);
@@ -39,6 +43,7 @@ export function ZoomControls({ zoom, onZoomChange, onCenter }: ZoomControlsProps
 
   const minDisabled = zoom <= ZOOM_MIN;
   const maxDisabled = zoom >= ZOOM_MAX;
+  const btnBase = getButtonStyle(isMobile ?? false);
 
   // Show zoom level briefly when zoom changes
   useEffect(() => {
@@ -107,6 +112,7 @@ export function ZoomControls({ zoom, onZoomChange, onCenter }: ZoomControlsProps
           display: 'flex',
           flexDirection: 'column',
           gap: 4,
+          paddingLeft: isMobile ? 'max(8px, env(safe-area-inset-left))' : undefined,
         }}
       >
         <button

@@ -94,7 +94,7 @@ export function ToolOverlay({
         if (!isSelected && !isHovered) return null;
 
         // Position above character
-        const sittingOffset = ch.state === CharacterState.TYPE ? CHARACTER_SITTING_OFFSET_PX : 0;
+        const sittingOffset = (ch.state === CharacterState.TYPE || ch.state === CharacterState.SIT) ? CHARACTER_SITTING_OFFSET_PX : 0;
         const screenX = (deviceOffsetX + ch.x * zoom) / dpr;
         const screenY =
           (deviceOffsetY + (ch.y + sittingOffset - TOOL_OVERLAY_VERTICAL_OFFSET) * zoom) / dpr;

@@ -7,13 +7,15 @@ import * as fs from 'fs';
 import * as path from 'path';
 
 import {
+  ACTIVITY_LOG_FILE,
+  ACTIVITY_LOG_SAVE_DEBOUNCE_MS,
   CONFIG_FILE,
   LAYOUT_FILE_DIR,
   LAYOUT_FILE_NAME,
   LAYOUT_FILE_POLL_INTERVAL_MS,
   LAYOUT_REVISION_KEY,
 } from './constants.js';
-import type { AppConfig, MonitoredProject } from './types.js';
+import type { ActivityRecord, AgentAppearance, AppConfig, MonitoredProject } from './types.js';
 
 // ── Config File Operations ───────────────────────────────────
 
@@ -28,7 +30,11 @@ export function loadConfig(): AppConfig {
   try {
     if (fs.existsSync(CONFIG_FILE)) {
       const raw = fs.readFileSync(CONFIG_FILE, 'utf-8');
-      return JSON.parse(raw) as AppConfig;
+      const parsed = JSON.parse(raw) as Record<string, unknown>;
+      return {
+        ...parsed,
+        showInactiveAgents: (parsed.showInactiveAgents as boolean) ?? true,
+      } as AppConfig;
     }
   } catch (err) {
     console.error('[ConfigManager] Failed to read config:', err);
@@ -37,6 +43,8 @@ export function loadConfig(): AppConfig {
     projects: [],
     layoutFile: path.join(LAYOUT_FILE_DIR, LAYOUT_FILE_NAME),
     soundEnabled: true,
+    showInactiveAgents: true,
+    agentAppearances: {},
   };
 }
 
@@ -79,6 +87,65 @@ export function updateSoundEnabled(config: AppConfig, enabled: boolean): AppConf
   };
   saveConfig(updatedConfig);
   return updatedConfig;
+}
+
+export function updateShowInactiveAgents(config: AppConfig, enabled: boolean): AppConfig {
+  const updatedConfig: AppConfig = { ...config, showInactiveAgents: enabled };
+  saveConfig(updatedConfig);
+  return updatedConfig;
+}
+
+export function updateAgentAppearance(
+  config: AppConfig,
+  agentKey: string,
+  appearance: AgentAppearance,
+): AppConfig {
+  const current = config.agentAppearances ?? {};
+  const updated = { ...current, [agentKey]: appearance };
+  const newConfig = { ...config, agentAppearances: updated };
+  saveConfig(newConfig);
+  return newConfig;
+}
+
+// ── Activity Log Persistence ─────────────────────────────────
+
+export function loadActivityLog(): ActivityRecord[] {
+  try {
+    if (fs.existsSync(ACTIVITY_LOG_FILE)) {
+      const raw = fs.readFileSync(ACTIVITY_LOG_FILE, 'utf-8');
+      return JSON.parse(raw) as ActivityRecord[];
+    }
+  } catch (err) {
+    console.error('[ConfigManager] Failed to read activity log:', err);
+  }
+  return [];
+}
+
+let activitySaveTimer: ReturnType<typeof setTimeout> | null = null;
+
+export function saveActivityLogDebounced(log: readonly ActivityRecord[]): void {
+  if (activitySaveTimer) clearTimeout(activitySaveTimer);
+  activitySaveTimer = setTimeout(() => {
+    try {
+      ensureConfigDir();
+      const json = JSON.stringify(log);
+      const tmpPath = ACTIVITY_LOG_FILE + '.tmp';
+      fs.writeFileSync(tmpPath, json, 'utf-8');
+      fs.renameSync(tmpPath, ACTIVITY_LOG_FILE);
+    } catch (err) {
+      console.error('[ConfigManager] Failed to write activity log:', err);
+    }
+  }, ACTIVITY_LOG_SAVE_DEBOUNCE_MS);
+}
+
+export function clearActivityLogFile(): void {
+  try {
+    if (fs.existsSync(ACTIVITY_LOG_FILE)) {
+      fs.unlinkSync(ACTIVITY_LOG_FILE);
+    }
+  } catch (err) {
+    console.error('[ConfigManager] Failed to clear activity log:', err);
+  }
 }
 
 // ── Layout File Operations ───────────────────────────────────

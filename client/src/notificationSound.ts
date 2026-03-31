@@ -8,6 +8,12 @@ import {
   NOTIFICATION_NOTE_2_START_SEC,
   NOTIFICATION_NOTE_DURATION_SEC,
   NOTIFICATION_VOLUME,
+  SPAWN_NOTE_1_HZ,
+  SPAWN_NOTE_2_HZ,
+  SPAWN_NOTE_3_HZ,
+  SPAWN_NOTE_OFFSET_SEC,
+  SPAWN_NOTE_DURATION_SEC,
+  SPAWN_VOLUME,
 } from './constants.js';
 
 let soundEnabled = true;
@@ -79,6 +85,38 @@ export async function playActivityTick(): Promise<void> {
 
     osc.start(t);
     osc.stop(t + ACTIVITY_TICK_DURATION_SEC);
+  } catch {
+    // Audio may not be available
+  }
+}
+
+export async function playSpawnSound(): Promise<void> {
+  if (!soundEnabled) return;
+  try {
+    if (!audioCtx) {
+      audioCtx = new AudioContext();
+    }
+    if (audioCtx.state === 'suspended') {
+      await audioCtx.resume();
+    }
+    const notes = [SPAWN_NOTE_1_HZ, SPAWN_NOTE_2_HZ, SPAWN_NOTE_3_HZ];
+    for (let i = 0; i < notes.length; i++) {
+      const t = audioCtx.currentTime + i * SPAWN_NOTE_OFFSET_SEC;
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+
+      osc.type = 'triangle';
+      osc.frequency.setValueAtTime(notes[i], t);
+
+      gain.gain.setValueAtTime(SPAWN_VOLUME, t);
+      gain.gain.exponentialRampToValueAtTime(0.001, t + SPAWN_NOTE_DURATION_SEC);
+
+      osc.connect(gain);
+      gain.connect(audioCtx.destination);
+
+      osc.start(t);
+      osc.stop(t + SPAWN_NOTE_DURATION_SEC);
+    }
   } catch {
     // Audio may not be available
   }

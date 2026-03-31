@@ -1,8 +1,7 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo } from 'react';
 
-import { ACTIVITY_TIMESTAMP_REFRESH_MS } from '../constants.js';
-import { formatActivity } from '../office/formatActivity.js';
 import type { ActivityEntry } from '../office/types.js';
+import { ActivityEntryList } from './ActivityEntryList.js';
 
 interface ActivitySidebarProps {
   readonly activityLog: readonly ActivityEntry[];
@@ -10,45 +9,12 @@ interface ActivitySidebarProps {
   readonly agentNames: Readonly<Record<number, string>>;
 }
 
-function formatRelativeTime(timestamp: number, now: number): string {
-  const diffSec = Math.floor((now - timestamp) / 1000);
-  if (diffSec < 5) return 'now';
-  if (diffSec < 60) return `${diffSec}s`;
-  const diffMin = Math.floor(diffSec / 60);
-  if (diffMin < 60) return `${diffMin}m`;
-  const diffHr = Math.floor(diffMin / 60);
-  return `${diffHr}h`;
-}
-
-function StatusDot({ entry }: { entry: ActivityEntry }) {
-  const color = entry.done
-    ? 'var(--pixel-status-done)'
-    : entry.permissionWait
-      ? 'var(--pixel-status-permission)'
-      : 'var(--pixel-status-active)';
-
-  return (
-    <span
-      className={!entry.done && !entry.permissionWait ? 'pixel-agents-pulse' : undefined}
-      style={{
-        width: 8,
-        height: 8,
-        borderRadius: '50%',
-        background: color,
-        display: 'inline-block',
-        flexShrink: 0,
-        boxShadow: entry.done ? 'none' : `0 0 4px ${color}`,
-      }}
-    />
-  );
-}
-
 const sidebarStyle: React.CSSProperties = {
   position: 'absolute',
   top: 0,
   right: 0,
   bottom: 0,
-  width: 260,
+  width: 340,
   background: 'var(--pixel-bg)',
   borderLeft: '2px solid var(--pixel-border)',
   boxShadow: 'var(--pixel-shadow)',
@@ -86,60 +52,12 @@ const agentHeaderStyle: React.CSSProperties = {
   gap: 6,
 };
 
-const activeRowStyle: React.CSSProperties = {
-  display: 'flex',
-  alignItems: 'center',
-  gap: 8,
-  padding: '5px 12px 5px 16px',
-  fontSize: '13px',
-  color: 'var(--pixel-text)',
-  borderLeft: '2px solid var(--pixel-status-active)',
-  margin: '1px 0',
-  background: 'rgba(55, 148, 255, 0.06)',
-};
-
-const doneRowStyle: React.CSSProperties = {
-  display: 'flex',
-  alignItems: 'center',
-  gap: 8,
-  padding: '4px 12px 4px 16px',
-  fontSize: '13px',
-  color: 'var(--pixel-text-dim)',
-  borderLeft: '2px solid transparent',
-  margin: '1px 0',
-  opacity: 0.55,
-};
-
-const permissionRowStyle: React.CSSProperties = {
-  display: 'flex',
-  alignItems: 'center',
-  gap: 8,
-  padding: '5px 12px 5px 16px',
-  fontSize: '13px',
-  color: 'var(--pixel-text)',
-  borderLeft: '2px solid var(--pixel-status-permission)',
-  margin: '1px 0',
-  background: 'rgba(204, 167, 0, 0.08)',
-};
-
-function getRowStyle(entry: ActivityEntry): React.CSSProperties {
-  if (entry.permissionWait) return permissionRowStyle;
-  if (entry.done) return doneRowStyle;
-  return activeRowStyle;
-}
-
 /** Count active (non-done) entries for an agent */
 function countActive(entries: readonly ActivityEntry[]): number {
   return entries.filter((e) => !e.done).length;
 }
 
 export function ActivitySidebar({ activityLog, agentNames }: ActivitySidebarProps) {
-  const [now, setNow] = useState(Date.now());
-  useEffect(() => {
-    const interval = setInterval(() => setNow(Date.now()), ACTIVITY_TIMESTAMP_REFRESH_MS);
-    return () => clearInterval(interval);
-  }, []);
-
   const grouped = useMemo(() => {
     const groups = new Map<number, ActivityEntry[]>();
     for (const entry of activityLog) {
@@ -150,9 +68,14 @@ export function ActivitySidebar({ activityLog, agentNames }: ActivitySidebarProp
         groups.set(entry.agentId, [entry]);
       }
     }
+    // Sort entries within each group by timestamp descending (most recent first)
+    for (const [, entries] of groups) {
+      entries.sort((a, b) => b.timestamp - a.timestamp);
+    }
+    // Sort agent groups by their most recent entry timestamp
     const sortedIds = [...groups.keys()].sort((a, b) => {
-      const aLatest = groups.get(a)![0].timestamp;
-      const bLatest = groups.get(b)![0].timestamp;
+      const aLatest = Math.max(...groups.get(a)!.map((e) => e.timestamp));
+      const bLatest = Math.max(...groups.get(b)!.map((e) => e.timestamp));
       return bLatest - aLatest;
     });
     return { groups, sortedIds };
@@ -207,41 +130,7 @@ export function ActivitySidebar({ activityLog, agentNames }: ActivitySidebarProp
                   </span>
                 )}
               </div>
-              {entries.map((entry) => {
-                const { icon, label } = formatActivity(entry.status);
-                const timeStr = formatRelativeTime(entry.timestamp, now);
-                return (
-                  <div key={entry.id} style={getRowStyle(entry)} title={entry.status}>
-                    <StatusDot entry={entry} />
-                    <span style={{ flexShrink: 0, fontSize: '13px', lineHeight: 1 }}>{icon}</span>
-                    <span
-                      style={{
-                        flex: 1,
-                        overflow: 'hidden',
-                        textOverflow: 'ellipsis',
-                        whiteSpace: 'nowrap',
-                        lineHeight: 1.3,
-                      }}
-                    >
-                      {label}
-                    </span>
-                    <span
-                      style={{
-                        fontSize: '11px',
-                        color: timeStr === 'now'
-                          ? 'var(--pixel-status-active)'
-                          : 'var(--pixel-text-dim)',
-                        flexShrink: 0,
-                        fontVariantNumeric: 'tabular-nums',
-                        minWidth: 24,
-                        textAlign: 'right',
-                      }}
-                    >
-                      {timeStr}
-                    </span>
-                  </div>
-                );
-              })}
+              <ActivityEntryList entries={entries} />
             </div>
           );
         })}

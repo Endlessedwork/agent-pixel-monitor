@@ -19,9 +19,10 @@ interface WsClient {
 // In production, use the same host/port as the page.
 const DEV_WS_PORT = 3456;
 const isDevMode = window.location.port === '5173';
+const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
 const WS_URL = isDevMode
   ? `ws://${window.location.hostname}:${DEV_WS_PORT}/ws`
-  : `ws://${window.location.host}/ws`;
+  : `${wsProtocol}//${window.location.host}/ws`;
 const RECONNECT_DELAY_MS = 2000;
 const MAX_RECONNECT_DELAY_MS = 30000;
 
