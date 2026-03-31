@@ -29,6 +29,11 @@ npm run start         # Starts server (serves client/dist/ in production)
 
 No test framework is configured. No linter is configured.
 
+### Utility Scripts
+
+- `scripts/analyze-palette.ts` — analyze character palette colors
+- `scripts/recolor-sprites.ts` — recolor sprite sheets
+
 ## Architecture
 
 ### Data Flow
@@ -65,6 +70,16 @@ Server maintains `agentState.activityLog` (max 200 entries) persisted across res
 - Appearances persist in `~/.pixel-agents-monitor/config.json` under `agentAppearances` keyed as `"openclaw:<agentId>"`
 - OpenClaw agent identity is derived from JSONL path: `~/.openclaw/agents/<AGENT_ID>/sessions/<uuid>.jsonl`
 - Agent display names come from `~/.openclaw/openclaw.json` → `agents.list[].name`
+
+### Dual Type Systems
+
+WebSocket message types are defined separately in `client/src/office/types.ts` and `server/src/types.ts`. These must be kept in sync manually — there is no shared types package. When adding/modifying WebSocket messages, update both files.
+
+Constants are also split: `client/src/constants.ts` (animation, grid, rendering) and `server/src/constants.ts` (polling intervals, file paths, display truncation). These are independent — no shared constants.
+
+### i18n
+
+Bilingual Thai/English support via `client/src/i18n.tsx`. Language stored in `localStorage` under `miniapp_language`. Uses React context (`LanguageProvider` / `useLanguage` hook) with a translations dictionary.
 
 ### Client Architecture
 
