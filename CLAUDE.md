@@ -84,6 +84,9 @@ Bilingual Thai/English support via `client/src/i18n.tsx`. Language stored in `lo
 ### Client Architecture
 
 - **`App.tsx`**: Root component — manages editor state, office state, WebSocket connection, modals
+- **`ActivitiesPage.tsx`**: Standalone page for activity log display
+- **`components/`**: Shared React UI components (modals, sidebar, settings)
+- **`notificationSound.ts`**: Audio notification playback
 - **`office/engine/`**: Imperative game engine outside React
   - `officeState.ts` — main game state (characters, furniture, seats, tile maps)
   - `gameLoop.ts` — requestAnimationFrame loop
@@ -100,9 +103,13 @@ Bilingual Thai/English support via `client/src/i18n.tsx`. Language stored in `lo
 - **`index.ts`**: Bun.serve with Hono routes + WebSocket upgrade handler; serves `client/dist/` in production via `serveStatic` with `rewriteRequestPath`
 - **`agentManager.ts`**: Discovers JSONL files, polls for changes, manages agent lifecycle (including virtual agents for OpenClaw), subagent spawning
 - **`transcriptParser.ts`**: Parses JSONL transcripts to extract tool calls and agent status; supports both Claude Code (`tool_use`/`tool_result`) and OpenClaw (`toolCall`/`toolResult`) JSONL formats
+- **`wsManager.ts`**: WebSocket connection manager — broadcasts messages to all connected clients
+- **`fileWatcher.ts`**: File system watching utilities for JSONL session files
+- **`timerManager.ts`**: Centralized timer management for polling intervals
 - **`constants.ts`**: Centralized timing/limit constants (poll intervals, activity log max, delays)
 - **`configManager.ts`**: Persists config/layout/appearances to `~/.pixel-agents-monitor/`
 - **`assetLoader.ts` / `assetLoaderSprites.ts`**: Server-side PNG parsing for sprites
+- **`pngUtils.ts`**: Low-level PNG manipulation utilities
 
 ### WebSocket Protocol
 
