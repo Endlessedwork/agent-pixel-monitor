@@ -5,6 +5,20 @@
  * with WebSocket equivalents: `send(msg)` / `onMessage(handler)`.
  */
 
+const AUTH_TOKEN_KEY = 'pixel_monitor_auth_token';
+
+export function getAuthToken(): string | null {
+  return localStorage.getItem(AUTH_TOKEN_KEY);
+}
+
+export function setAuthToken(token: string): void {
+  localStorage.setItem(AUTH_TOKEN_KEY, token);
+}
+
+export function clearAuthToken(): void {
+  localStorage.removeItem(AUTH_TOKEN_KEY);
+}
+
 type MessageHandler = (msg: unknown) => void;
 
 interface WsClient {
@@ -20,9 +34,14 @@ interface WsClient {
 const DEV_WS_PORT = 3456;
 const isDevMode = window.location.port === '5173';
 const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-const WS_URL = isDevMode
-  ? `ws://${window.location.hostname}:${DEV_WS_PORT}/ws`
-  : `${wsProtocol}//${window.location.host}/ws`;
+
+function getWsUrl(): string {
+  const base = isDevMode
+    ? `ws://${window.location.hostname}:${DEV_WS_PORT}/ws`
+    : `${wsProtocol}//${window.location.host}/ws`;
+  const token = getAuthToken();
+  return token ? `${base}?token=${encodeURIComponent(token)}` : base;
+}
 const RECONNECT_DELAY_MS = 2000;
 const MAX_RECONNECT_DELAY_MS = 30000;
 
@@ -71,7 +90,7 @@ function connectInternal(): void {
   }
 
   try {
-    ws = new WebSocket(WS_URL);
+    ws = new WebSocket(getWsUrl());
   } catch (err) {
     console.error('[WS] Failed to create WebSocket:', err);
     scheduleReconnect();
@@ -81,7 +100,7 @@ function connectInternal(): void {
   ws.onopen = () => {
     connected = true;
     reconnectDelay = RECONNECT_DELAY_MS;
-    console.log('[WS] Connected to', WS_URL);
+    console.log('[WS] Connected');
     flushPendingMessages();
   };
 
@@ -153,6 +172,15 @@ function disconnect(): void {
 
 function isConnected(): boolean {
   return connected;
+}
+
+/** Wrapper around fetch that adds the auth Bearer header if a token is stored. */
+export function authFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+  const token = getAuthToken();
+  if (!token) return fetch(input, init);
+  const headers = new Headers(init?.headers);
+  headers.set('Authorization', `Bearer ${token}`);
+  return fetch(input, { ...init, headers });
 }
 
 export const wsClient: WsClient = {

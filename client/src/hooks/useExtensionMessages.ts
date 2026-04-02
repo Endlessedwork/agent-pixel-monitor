@@ -11,7 +11,7 @@ import { formatActivity } from '../office/formatActivity.js';
 import { ACTIVITY_LOG_MAX_ENTRIES, SPEECH_BUBBLE_PERSIST_MS } from '../constants.js';
 import type { ActivityEntry, AgentBubble, OfficeLayout, ToolActivity } from '../office/types.js';
 import { setWallSprites } from '../office/wallTiles.js';
-import { wsClient } from '../wsClient.js';
+import { authFetch, wsClient } from '../wsClient.js';
 
 export interface SubagentCharacter {
   id: number;
@@ -113,7 +113,7 @@ export function useExtensionMessages(
 
   // Fetch appearances on mount
   useEffect(() => {
-    fetch('/api/config/appearances')
+    authFetch('/api/config/appearances')
       .then((r) => r.json())
       .then((data) => {
         appearancesRef.current = data;
@@ -195,7 +195,7 @@ export function useExtensionMessages(
               const key = `openclaw:${p.openclawAgentId}`;
               const appearance = { gender: p.gender || 'any', palette: ch.palette, hueShift: ch.hueShift };
               appearancesRef.current[key] = appearance;
-              fetch(`/api/config/appearances/${key}`, {
+              authFetch(`/api/config/appearances/${key}`, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(appearance),
@@ -241,7 +241,7 @@ export function useExtensionMessages(
           if (ch) {
             const appearance = { gender, palette: ch.palette, hueShift: ch.hueShift };
             appearancesRef.current[`openclaw:${openclawAgentId}`] = appearance;
-            fetch(`/api/config/appearances/openclaw:${openclawAgentId}`, {
+            authFetch(`/api/config/appearances/openclaw:${openclawAgentId}`, {
               method: 'PUT',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify(appearance),
@@ -309,7 +309,7 @@ export function useExtensionMessages(
                 const key = `openclaw:${m.openclawAgentId}`;
                 const appearance = { gender, palette: ch.palette, hueShift: ch.hueShift };
                 appearancesRef.current[key] = appearance;
-                fetch(`/api/config/appearances/${key}`, {
+                authFetch(`/api/config/appearances/${key}`, {
                   method: 'PUT',
                   headers: { 'Content-Type': 'application/json' },
                   body: JSON.stringify(appearance),

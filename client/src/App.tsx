@@ -23,7 +23,7 @@ import { EditorToolbar } from './office/editor/EditorToolbar.js';
 import { OfficeState } from './office/engine/officeState.js';
 import { isRotatable } from './office/layout/furnitureCatalog.js';
 import { EditTool } from './office/types.js';
-import { wsClient } from './wsClient.js';
+import { authFetch, getAuthToken, setAuthToken, wsClient } from './wsClient.js';
 import { useI18n } from './i18n.js';
 
 // Game state lives outside React -- updated imperatively by message handlers
@@ -129,7 +129,89 @@ function EditActionBar({
   );
 }
 
+// ── Auth Gate ──────────────────────────────────────────────
+function useAuthGate() {
+  const [status, setStatus] = useState<'checking' | 'ok' | 'needsAuth'>('checking');
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    fetch('/api/auth/status')
+      .then((r) => r.json())
+      .then((data: { authRequired: boolean }) => {
+        if (!data.authRequired) {
+          setStatus('ok');
+          return;
+        }
+        // Auth is required — check if stored token works
+        const token = getAuthToken();
+        if (!token) {
+          setStatus('needsAuth');
+          return;
+        }
+        authFetch('/api/config').then((r) => {
+          setStatus(r.ok ? 'ok' : 'needsAuth');
+        });
+      })
+      .catch(() => setStatus('ok')); // If status endpoint fails, skip auth (dev mode)
+  }, []);
+
+  const submitToken = useCallback((token: string) => {
+    setAuthToken(token);
+    setError('');
+    authFetch('/api/config').then((r) => {
+      if (r.ok) {
+        setStatus('ok');
+        // Reconnect WS with new token
+        wsClient.disconnect();
+        wsClient.connect();
+      } else {
+        setError('Invalid token');
+      }
+    });
+  }, []);
+
+  return { status, error, submitToken };
+}
+
+function AuthPrompt({ onSubmit, error }: { onSubmit: (token: string) => void; error: string }) {
+  const [token, setToken] = useState('');
+  return (
+    <div style={{
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+      height: '100vh', background: 'var(--pixel-bg, #1a1a2e)',
+      color: 'var(--pixel-text, #e0e0e0)', fontFamily: 'monospace',
+    }}>
+      <form onSubmit={(e) => { e.preventDefault(); onSubmit(token); }} style={{
+        display: 'flex', flexDirection: 'column', gap: 12, padding: 32,
+        border: '2px solid var(--pixel-border, #333)', background: 'var(--pixel-panel-bg, #16213e)',
+      }}>
+        <div style={{ fontSize: 16, fontWeight: 'bold' }}>Pixel Agents Monitor</div>
+        <div style={{ fontSize: 12, opacity: 0.7 }}>Enter auth token to continue</div>
+        <input
+          type="password"
+          value={token}
+          onChange={(e) => setToken(e.target.value)}
+          placeholder="AUTH_TOKEN"
+          autoFocus
+          style={{
+            padding: '8px 12px', fontFamily: 'monospace', fontSize: 14,
+            background: 'var(--pixel-bg, #1a1a2e)', color: 'var(--pixel-text, #e0e0e0)',
+            border: '1px solid var(--pixel-border, #333)', outline: 'none',
+          }}
+        />
+        {error && <div style={{ color: '#ff6b6b', fontSize: 12 }}>{error}</div>}
+        <button type="submit" style={{
+          padding: '8px 16px', fontFamily: 'monospace', fontSize: 14,
+          background: 'var(--pixel-btn-bg, #333)', color: 'var(--pixel-text, #e0e0e0)',
+          border: '1px solid var(--pixel-border, #555)', cursor: 'pointer',
+        }}>Login</button>
+      </form>
+    </div>
+  );
+}
+
 function App() {
+  const auth = useAuthGate();
   const { isConnected } = useWebSocket();
   const editor = useEditorActions(getOfficeState, editorState);
 
@@ -319,6 +401,21 @@ function App() {
       }
       return false;
     })();
+
+  if (auth.status === 'checking') {
+    return (
+      <div style={{
+        width: '100%', height: '100%', display: 'flex',
+        alignItems: 'center', justifyContent: 'center', color: 'var(--pixel-text)',
+      }}>
+        <span>Checking auth...</span>
+      </div>
+    );
+  }
+
+  if (auth.status === 'needsAuth') {
+    return <AuthPrompt onSubmit={auth.submitToken} error={auth.error} />;
+  }
 
   if (!layoutReady) {
     return (

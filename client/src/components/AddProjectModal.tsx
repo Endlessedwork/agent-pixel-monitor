@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { authFetch } from '../wsClient.js';
 
 interface MonitoredProject {
   id: string;
@@ -101,7 +102,7 @@ export function AddProjectModal({ isOpen, onClose, projects }: AddProjectModalPr
     setError('');
 
     try {
-      const res = await fetch('/api/config/projects', {
+      const res = await authFetch('/api/config/projects', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -128,7 +129,7 @@ export function AddProjectModal({ isOpen, onClose, projects }: AddProjectModalPr
 
   const handleRemove = useCallback(async (id: string) => {
     try {
-      await fetch(`/api/config/projects/${encodeURIComponent(id)}`, { method: 'DELETE' });
+      await authFetch(`/api/config/projects/${encodeURIComponent(id)}`, { method: 'DELETE' });
     } catch {
       // Server will broadcast configUpdated on success
     }

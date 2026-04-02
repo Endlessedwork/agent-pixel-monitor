@@ -13,6 +13,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { MobileBottomSheet } from './MobileBottomSheet.js';
 import { useI18n, type Language } from '../i18n.js';
+import { authFetch } from '../wsClient.js';
 
 // ── Types ────────────────────────────────────────────────────
 
@@ -44,7 +45,7 @@ function loadSettings(): MiniappSettingsData {
 
 async function saveSettingsToServer(data: MiniappSettingsData): Promise<void> {
   try {
-    await fetch('/api/settings/miniapp', {
+    await authFetch('/api/settings/miniapp', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data),
@@ -61,7 +62,7 @@ interface AgentEntry {
 
 async function fetchAgents(): Promise<AgentEntry[]> {
   try {
-    const res = await fetch('/api/openclaw/agents');
+    const res = await authFetch('/api/openclaw/agents');
     if (!res.ok) return [];
     const data = await res.json() as { agents: AgentEntry[] };
     return data.agents || [];
