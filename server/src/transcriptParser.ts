@@ -20,14 +20,15 @@ export const PERMISSION_EXEMPT_TOOLS = new Set(['Task', 'Agent', 'AskUserQuestio
 export function formatToolStatus(toolName: string, input: Record<string, unknown>): string {
   const base = (p: unknown) => (typeof p === 'string' ? path.basename(p) : '');
   const truncate = (s: string, max: number) => s.length > max ? s.slice(0, max) + '\u2026' : s;
+  const filePath = input.file_path || input.file || input.path; // Claude Code: file_path, OpenClaw: file or path
   const name = toolName.toLowerCase();
   switch (name) {
     case 'read':
-      return `Reading ${base(input.file_path) || 'file'}`;
+      return `Reading ${base(filePath) || 'file'}`;
     case 'edit':
-      return `Editing ${base(input.file_path) || 'file'}`;
+      return `Editing ${base(filePath) || 'file'}`;
     case 'write':
-      return `Writing ${base(input.file_path) || 'file'}`;
+      return `Writing ${base(filePath) || 'file'}`;
     case 'bash':
     case 'exec': {
       const cmd = (input.command as string) || '';
