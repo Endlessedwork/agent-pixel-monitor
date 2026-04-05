@@ -15,7 +15,7 @@ Pixel Agents Monitor — a real-time monitoring dashboard that displays Claude C
 ## Commands
 
 ```bash
-# Development (runs both client and server)
+# Development (runs both client and server, requires bun)
 npm run dev
 
 # Individual services
@@ -89,8 +89,11 @@ Bilingual Thai/English support via `client/src/i18n.tsx`. Language stored in `lo
 
 - **`App.tsx`**: Root component — manages editor state, office state, WebSocket connection, modals
 - **`ActivitiesPage.tsx`**: Standalone page for activity log display
-- **`components/`**: Shared React UI components (modals, sidebar, settings)
+- **`components/`**: Shared React UI components (modals, sidebar, settings, mobile sheets)
+  - Mobile-specific: `MobileBottomSheet`, `MobileActivitySheet`, `MobileAgentDetail` — responsive mobile UI
+  - Canvas overlay: `AgentLabels`, `ZoomControls`, `BottomToolbar`, `DebugView`
 - **`notificationSound.ts`**: Audio notification playback
+- **`office/components/`**: Canvas-related React wrappers — `OfficeCanvas.tsx`, `SpeechBubble.tsx`, `ToolOverlay.tsx`
 - **`office/engine/`**: Imperative game engine outside React
   - `officeState.ts` — main game state (characters, furniture, seats, tile maps)
   - `gameLoop.ts` — requestAnimationFrame loop
@@ -99,7 +102,16 @@ Bilingual Thai/English support via `client/src/i18n.tsx`. Language stored in `lo
 - **`office/layout/`**: Layout system — furniture catalog, serialization, A* pathfinding (`tileMap.ts`)
 - **`office/editor/`**: Editor tools (tile paint, furniture placement, undo/redo stack)
 - **`office/sprites/`**: Sprite caching with zoom/colorization variants
+- **`office/colorize.ts`**: Runtime sprite recoloring logic
+- **`office/floorTiles.ts` / `wallTiles.ts`**: Tile type definitions and rendering helpers
+- **`office/formatActivity.ts`**: Activity log entry formatting
+- **`office/toolUtils.ts`**: Tool name display/categorization helpers
 - **`hooks/`**: React hooks bridging WebSocket data to game engine
+  - `useWebSocket.ts` — WebSocket connection management
+  - `useExtensionMessages.ts` — message dispatch to OfficeState
+  - `useAssets.ts` — sprite/asset loading
+  - `useEditorActions.ts` / `useEditorKeyboard.ts` — editor interaction
+  - `useMobileDetect.ts` — responsive breakpoint detection
 - **`wsClient.ts`**: Singleton WebSocket with auto-reconnect and message buffering; uses `wss://` for HTTPS origins
 
 ### Server Architecture
@@ -145,4 +157,4 @@ Typed message unions in both `client/src/office/types.ts` and `server/src/types.
 - Config stored at `~/.pixel-agents-monitor/` (layout.json, config.json)
 - Client assets (PNGs, fonts) in `client/public/`
 - Vite proxies `/api` and `/ws` to server in dev mode
-- Deployed via Cloudflare Tunnel at `pixel.knetwork.app` (server on port 3456)
+- Deployed via Cloudflare Tunnel at `pixel.taladsod.online` (server on port 3456)
