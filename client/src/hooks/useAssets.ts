@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 
+import { authFetch } from '../wsClient.js';
 import { setFloorSprites } from '../office/floorTiles.js';
 import type { FurnitureAsset } from './useExtensionMessages.js';
 import { buildDynamicCatalog } from '../office/layout/furnitureCatalog.js';
@@ -92,7 +93,7 @@ export function useAssets(): AssetLoadState {
 
 /** Type-safe JSON fetcher with error handling */
 async function fetchJson<T>(url: string): Promise<T> {
-  const response = await fetch(url);
+  const response = await authFetch(url);
   if (!response.ok) {
     throw new Error(`Asset fetch failed: ${url} (${response.status} ${response.statusText})`);
   }

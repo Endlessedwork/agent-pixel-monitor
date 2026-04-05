@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { authFetch } from '../wsClient.js';
 
 interface AgentAppearanceSettingsProps {
   isOpen: boolean;
@@ -26,8 +27,8 @@ export function AgentAppearanceSettings({ isOpen, onClose }: AgentAppearanceSett
     if (!isOpen) return;
     setLoading(true);
     Promise.all([
-      fetch('/api/openclaw/agents').then(r => r.json()),
-      fetch('/api/config/appearances').then(r => r.json()),
+      authFetch('/api/openclaw/agents').then(r => r.json()),
+      authFetch('/api/config/appearances').then(r => r.json()),
     ])
       .then(([agentData, appearData]) => {
         setAgents(agentData.agents || []);
@@ -44,7 +45,7 @@ export function AgentAppearanceSettings({ isOpen, onClose }: AgentAppearanceSett
     const key = `openclaw:${agentId}`;
     const updated: AppearanceConfig = { gender, palette: undefined, hueShift: undefined };
     setAppearances(prev => ({ ...prev, [key]: updated }));
-    await fetch(`/api/config/appearances/${key}`, {
+    await authFetch(`/api/config/appearances/${key}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(updated),

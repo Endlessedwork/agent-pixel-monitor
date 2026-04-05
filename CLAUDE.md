@@ -29,6 +29,10 @@ npm run start         # Starts server (serves client/dist/ in production)
 
 No test framework is configured. No linter is configured.
 
+### Environment Variables
+
+- `AUTH_TOKEN` — optional bearer token for API/WebSocket authentication. When set, all `/api/*` routes require `Authorization: Bearer <token>` header, and WebSocket upgrade at `/ws` requires `?token=<token>` query parameter.
+
 ### Utility Scripts
 
 - `scripts/analyze-palette.ts` — analyze character palette colors
@@ -123,8 +127,12 @@ Typed message unions in both `client/src/office/types.ts` and `server/src/types.
 
 ### REST API
 
+- `GET /api/auth/status` — check if authentication is enabled
 - `GET/POST/DELETE /api/config/projects` — manage monitored projects
+- `GET /api/config/appearances` — list all agent appearances
 - `GET/PUT /api/config/appearances/:agentKey` — agent appearance (gender, palette)
+- `POST /api/config/sound` — enable/disable notification sound
+- `GET/POST /api/settings/miniapp` — miniapp settings (language, notifications, default agent)
 - `GET /api/openclaw/agents` — list all OpenClaw agents (scans directories + reads `openclaw.json`)
 - `GET /api/assets/*` — character sprites, furniture, walls, floors
 

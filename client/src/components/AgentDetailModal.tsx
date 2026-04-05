@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
+import { authFetch } from '../wsClient.js';
 import { ACTIVITY_TIMESTAMP_REFRESH_MS } from '../constants.js';
 import { formatActivity } from '../office/formatActivity.js';
 import type { OfficeState } from '../office/engine/officeState.js';
@@ -512,7 +513,7 @@ export function AgentDetailModal({
                   const gender = MALE_PALETTES.includes(selectedPalette) ? 'male' : 'female';
                   const agentKey = `openclaw:${character.openclawAgentId}`;
                   try {
-                    const response = await fetch(`/api/config/appearances/${agentKey}`, {
+                    const response = await authFetch(`/api/config/appearances/${agentKey}`, {
                       method: 'PUT',
                       headers: { 'Content-Type': 'application/json' },
                       body: JSON.stringify({ gender, palette: selectedPalette, hueShift: selectedHueShift }),

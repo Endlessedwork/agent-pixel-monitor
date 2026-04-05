@@ -13,6 +13,7 @@ import * as path from 'path';
 
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
+import { bearerAuth } from 'hono/bearer-auth';
 import { serveStatic } from 'hono/bun';
 
 import {
@@ -104,8 +105,20 @@ function broadcastWithActivityLog(msg: ServerMessage): void {
 // ── Hono App ─────────────────────────────────────────────────
 
 const app = new Hono();
+const AUTH_TOKEN = process.env.AUTH_TOKEN;
 
 app.use('/*', cors());
+
+// Auth check endpoint (always accessible)
+app.get('/api/auth/status', (c) => {
+  return c.json({ authRequired: !!AUTH_TOKEN });
+});
+
+// Bearer token auth for all /api/* routes (except /api/auth/status above)
+if (AUTH_TOKEN) {
+  app.use('/api/*', bearerAuth({ token: AUTH_TOKEN }));
+  console.log('[Server] AUTH_TOKEN is set — API authentication enabled');
+}
 
 // ── REST API: Config ─────────────────────────────────────────
 
@@ -479,6 +492,12 @@ const server = Bun.serve({
 
     // Handle WebSocket upgrade
     if (url.pathname === '/ws') {
+      if (AUTH_TOKEN) {
+        const token = url.searchParams.get('token');
+        if (token !== AUTH_TOKEN) {
+          return new Response('Unauthorized', { status: 401 });
+        }
+      }
       const upgraded = server.upgrade(req);
       if (upgraded) return undefined;
       return new Response('WebSocket upgrade failed', { status: 400 });
